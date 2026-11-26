@@ -466,8 +466,8 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
     ctx.stroke();
 
     // Left: Twin Reel Deck + Tape Path + Head Block
-    const deckMidY = Math.round(h * 0.40);
-    const reelR = Math.round(Math.min(h * 0.25, splitX * 0.19));
+    const deckMidY = Math.round(h * 0.36);
+    const reelR = Math.max(12, Math.round(Math.min(h * 0.20, splitX * 0.17)));
     const r1X = Math.round(splitX * 0.27);
     const r2X = Math.round(splitX * 0.73);
     const packOsc = Math.sin(vizData.reelAngle * 0.1) * 0.15;
@@ -477,18 +477,18 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
 
     // Tape path across tension rollers & center REC/PB Head
     const headX = Math.round(splitX * 0.5);
-    const headY = deckMidY + reelR + 12 + wfJitter * 0.5;
+    const headY = Math.min(h - 32, deckMidY + reelR + 9 + wfJitter * 0.5);
     const g1X = r1X - reelR * 0.35;
     const g2X = r2X + reelR * 0.35;
-    const gY = headY - 4;
+    const gY = headY - 3;
 
     ctx.strokeStyle = isDrop ? accent : ink;
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth = 1.4;
     ctx.beginPath();
     ctx.moveTo(r1X - reelR * 0.75, deckMidY + reelR * 0.35);
     ctx.lineTo(g1X, gY);
-    ctx.lineTo(headX - 14, headY);
-    ctx.lineTo(headX + 14, headY);
+    ctx.lineTo(headX - 10, headY);
+    ctx.lineTo(headX + 10, headY);
     ctx.lineTo(g2X, gY);
     ctx.lineTo(r2X + reelR * 0.75, deckMidY + reelR * 0.35);
     ctx.stroke();
@@ -496,49 +496,50 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
     // Magnetic head housing
     ctx.fillStyle = bg;
     ctx.strokeStyle = ink;
-    ctx.fillRect(headX - 12, headY - 9, 24, 14);
-    ctx.strokeRect(headX - 12, headY - 9, 24, 14);
+    ctx.fillRect(headX - 9, headY - 7, 18, 11);
+    ctx.strokeRect(headX - 9, headY - 7, 18, 11);
     ctx.fillStyle = satPct > 50 || outPk > 0.6 ? accent : ink;
     ctx.beginPath();
-    ctx.arc(headX, headY - 2, 2.5, 0, Math.PI * 2);
+    ctx.arc(headX, headY - 1.5, 2, 0, Math.PI * 2);
     ctx.fill();
 
     // Bottom TE mini HUD + segmented VU bar
     ctx.fillStyle = inkDim;
-    ctx.font = '700 10px "Geist Mono", monospace';
+    ctx.font = '700 8.5px "Geist Mono", monospace';
     ctx.textBaseline = 'top';
-    ctx.fillText(`${vizData.ips} IPS · ${formula}`, 12, h - 38);
+    ctx.fillText(`${vizData.ips} IPS · ${formula}`, 8, h - 27);
 
-    const vuSegs = 14;
-    const vuX = 12;
-    const vuY = h - 22;
-    const vuW = splitX - 24;
+    const vuSegs = 12;
+    const vuX = 8;
+    const vuY = h - 15;
+    const vuW = splitX - 16;
     const segW = vuW / vuSegs;
     for (let i = 0; i < vuSegs; i++) {
       const lit = (i + 1) / vuSegs <= outPk;
       ctx.fillStyle = lit ? (i >= vuSegs - 3 ? accent : ink) : border;
-      ctx.fillRect(vuX + i * segW, vuY, Math.max(2, segW - 2), 8);
+      ctx.fillRect(vuX + i * segW, vuY, Math.max(2, segW - 2), 6);
     }
 
     // Right: Live Hysteresis Loop + Saturation Readout
-    const hX = splitX + 12;
-    const hY = 12;
-    const hW = w - hX - 12;
-    const hH = h - 42;
+    const hX = splitX + 8;
+    const hY = 9;
+    const hW = w - hX - 8;
+    const hH = h - 30;
     drawHysteresisLoop(ctx, hX, hY, hW, hH, vizData, accent, ink, inkDim, border);
 
     ctx.fillStyle = inkDim;
-    ctx.font = '600 9.5px "Geist Mono", monospace';
+    ctx.font = '600 8px "Geist Mono", monospace';
     ctx.textBaseline = 'bottom';
-    ctx.fillText('B-H HYST', hX, h - 10);
+    ctx.fillText('B-H', hX, h - 7);
     ctx.fillStyle = satPct > 65 ? accent : ink;
-    ctx.fillText(`SAT ${String(satPct).padStart(2, '0')}%`, w - 58, h - 10);
+    ctx.fillText(`SAT ${String(satPct).padStart(2, '0')}%`, w - 44, h - 7);
     return;
   }
 
-  // EXPANDED FULL-SCREEN TE HARDWARE LCD (960x240)
+  // EXPANDED FULL-SCREEN TE HARDWARE LCD
   const p1End = Math.round(w * 0.37);
   const p2End = Math.round(w * 0.71);
+  const compactHud = w < 640 || h < 165;
 
   ctx.strokeStyle = border;
   [p1End, p2End].forEach((sx) => {
@@ -550,7 +551,7 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
 
   // PANE 1: Transport Deck
   const deckCy = Math.round(h * 0.42);
-  const reelR = Math.round(h * 0.25);
+  const reelR = Math.max(16, Math.round(Math.min(h * 0.22, p1End * 0.17)));
   const r1X = Math.round(p1End * 0.28);
   const r2X = Math.round(p1End * 0.72);
   const packOsc = Math.sin(vizData.reelAngle * 0.1) * 0.15;
@@ -559,56 +560,56 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
   drawTeReel(ctx, r2X, deckCy, reelR, vizData.reelAngle * 1.04, 0.55 + packOsc, ink, inkDim, border, accent, outPk > 0.75);
 
   const headX = Math.round(p1End * 0.5);
-  const headY = deckCy + reelR + 18 + wfJitter;
+  const headY = Math.min(h - 28, deckCy + reelR + 13 + wfJitter * 0.7);
   ctx.strokeStyle = isDrop ? accent : ink;
-  ctx.lineWidth = 1.8;
+  ctx.lineWidth = 1.6;
   ctx.beginPath();
   ctx.moveTo(r1X - reelR * 0.72, deckCy + reelR * 0.38);
-  ctx.lineTo(r1X - reelR * 0.3, headY - 6);
-  ctx.lineTo(headX - 20, headY);
-  ctx.lineTo(headX + 20, headY);
-  ctx.lineTo(r2X + reelR * 0.3, headY - 6);
+  ctx.lineTo(r1X - reelR * 0.3, headY - 5);
+  ctx.lineTo(headX - 14, headY);
+  ctx.lineTo(headX + 14, headY);
+  ctx.lineTo(r2X + reelR * 0.3, headY - 5);
   ctx.lineTo(r2X + reelR * 0.72, deckCy + reelR * 0.38);
   ctx.stroke();
 
   // Pinch roller + Head housing
   ctx.fillStyle = bg;
   ctx.strokeStyle = ink;
-  ctx.fillRect(headX - 18, headY - 12, 36, 18);
-  ctx.strokeRect(headX - 18, headY - 12, 36, 18);
+  ctx.fillRect(headX - 14, headY - 10, 28, 14);
+  ctx.strokeRect(headX - 14, headY - 10, 28, 14);
   ctx.fillStyle = satPct > 50 || outPk > 0.55 ? accent : ink;
   ctx.beginPath();
-  ctx.arc(headX, headY - 3, 3.5, 0, Math.PI * 2);
+  ctx.arc(headX, headY - 3, 2.8, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = ink;
-  ctx.font = '700 12px "Geist Mono", monospace';
+  ctx.font = `700 ${compactHud ? 10 : 12}px "Geist Mono", monospace`;
   ctx.textBaseline = 'top';
-  ctx.fillText(`${vizData.ips} IPS // ${formula}`, 16, 14);
+  ctx.fillText(`${vizData.ips} IPS // ${formula}`, 12, 10);
   if (isDrop) {
     ctx.fillStyle = accent;
-    ctx.fillText('DROP', p1End - 48, 14);
+    ctx.fillText('DROP', p1End - 40, 10);
   }
   ctx.fillStyle = inkDim;
-  ctx.font = '600 10.5px "Geist Mono", monospace';
-  ctx.fillText(`W/F ${Math.round(vizData.flutter)}%  WOW ${Math.round(vizData.wow)}%  WEAR ${Math.round(vizData.wear)}%`, 16, h - 24);
+  ctx.font = `600 ${compactHud ? 9 : 10.5}px "Geist Mono", monospace`;
+  ctx.fillText(`W/F ${Math.round(vizData.flutter)}% WOW ${Math.round(vizData.wow)}%`, 12, h - 19);
 
   // PANE 2: Real-Time B-H Hysteresis + Scope Overlay
-  const hX = p1End + 16;
-  const hW = p2End - p1End - 32;
-  drawHysteresisLoop(ctx, hX, 34, hW, h - 66, vizData, accent, ink, inkDim, border);
+  const hX = p1End + 12;
+  const hW = p2End - p1End - 24;
+  drawHysteresisLoop(ctx, hX, 26, hW, Math.max(40, h - 50), vizData, accent, ink, inkDim, border);
 
   // Live waveform overlay at bottom of Pane 2
   const wOut = tel.waveOut || [];
   if (wOut.length > 2) {
     ctx.save();
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.6;
     ctx.strokeStyle = accent;
     ctx.lineWidth = 1.4;
     ctx.beginPath();
     wOut.forEach((v, idx) => {
       const wx = hX + (idx / (wOut.length - 1)) * hW;
-      const wy = h - 38 - v * 16;
+      const wy = h - 32 - v * 14;
       if (idx === 0) ctx.moveTo(wx, wy);
       else ctx.lineTo(wx, wy);
     });
@@ -617,22 +618,22 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
   }
 
   ctx.fillStyle = ink;
-  ctx.font = '700 11px "Geist Mono", monospace';
+  ctx.font = `700 ${compactHud ? 9.5 : 11}px "Geist Mono", monospace`;
   ctx.textBaseline = 'top';
-  ctx.fillText('JILES-ATHERTON B-H', hX, 14);
+  ctx.fillText('B-H HYSTERESIS', hX, 10);
   ctx.fillStyle = satPct > 65 ? accent : inkDim;
-  ctx.fillText(`SAT ${satPct}%  DRV ${Math.round(vizData.drive)}%  BIAS ${Math.round(vizData.bias)}%`, hX, h - 24);
+  ctx.font = `600 ${compactHud ? 9 : 10}px "Geist Mono", monospace`;
+  ctx.fillText(`SAT ${satPct}% DRV ${Math.round(vizData.drive)}%`, hX, h - 19);
 
   // PANE 3: Head Bump / Spacing Loss Response + Dual IN/OUT VU
-  const p3X = p2End + 16;
-  const p3W = w - p3X - 16;
+  const p3X = p2End + 12;
+  const p3W = w - p3X - 12;
   ctx.fillStyle = ink;
-  ctx.font = '700 11px "Geist Mono", monospace';
-  ctx.fillText('HEAD RESPONSE & VU', p3X, 14);
+  ctx.font = `700 ${compactHud ? 9.5 : 11}px "Geist Mono", monospace`;
+  ctx.fillText('RESPONSE & VU', p3X, 10);
 
-  // Frequency response curve (20..20k)
-  const eqY = 36;
-  const eqH = Math.round(h * 0.42);
+  const eqY = 28;
+  const eqH = Math.max(36, Math.round(h * 0.38));
   const midEqY = eqY + eqH * 0.55;
   ctx.strokeStyle = border;
   ctx.strokeRect(p3X + 0.5, eqY + 0.5, p3W, eqH);
@@ -646,7 +647,7 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
   const bumpGain = (vizData.bump / 100) * 6.5;
   const lossHz = Math.max(1400, LOSS_CUTOFF_HZ[ipsIdx] * (1 - (vizData.loss / 100) * 0.72));
   ctx.strokeStyle = ink;
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 1.8;
   ctx.beginPath();
   for (let i = 0; i <= 40; i++) {
     const t = i / 40;
@@ -662,39 +663,57 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
   }
   ctx.stroke();
 
-  // Dual IN / OUT segmented VU meters
-  const vuTop = eqY + eqH + 18;
+  const vuTop = eqY + eqH + 10;
+  const rowGap = Math.min(18, Math.max(12, Math.floor((h - vuTop - 8) / 2)));
   const drawRowVu = (lbl, val, ry) => {
     ctx.fillStyle = inkDim;
-    ctx.font = '700 10px "Geist Mono", monospace';
-    ctx.fillText(lbl, p3X, ry + 1);
-    const barX = p3X + 34;
-    const barW = p3W - 34;
-    const segs = 16;
+    ctx.font = '700 9px "Geist Mono", monospace';
+    ctx.fillText(lbl, p3X, ry);
+    const barX = p3X + 26;
+    const barW = Math.max(20, p3W - 26);
+    const segs = 14;
     const sw = barW / segs;
+    const barH = Math.max(6, rowGap - 6);
     for (let i = 0; i < segs; i++) {
       const lit = (i + 1) / segs <= val;
       ctx.fillStyle = lit ? (i >= segs - 3 ? accent : ink) : border;
-      ctx.fillRect(barX + i * sw, ry, Math.max(2, sw - 2), 11);
+      ctx.fillRect(barX + i * sw, ry + 1, Math.max(2, sw - 2), barH);
     }
   };
   drawRowVu('IN', inPk, vuTop);
-  drawRowVu('OUT', outPk, vuTop + 20);
+  drawRowVu('OUT', outPk, vuTop + rowGap);
 }
 
 function drawVisualizer(canvas, vizData, accent, ink, inkDim, bg, border, isExpanded = false) {
   const ctx = canvas.getContext('2d');
+  if (!vizData) {
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+
+  if (vizData.type === 'tape-lcd') {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = canvas.getBoundingClientRect();
+    const cssW = rect.width > 20 ? rect.width : canvas.width;
+    const cssH = rect.height > 20 ? rect.height : canvas.height;
+    const bw = Math.max(60, Math.round(cssW * dpr));
+    const bh = Math.max(40, Math.round(cssH * dpr));
+    if (canvas.width !== bw || canvas.height !== bh) {
+      canvas.width = bw;
+      canvas.height = bh;
+    }
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawTapeLcd(ctx, cssW, cssH, vizData, accent, ink, inkDim, bg, border, isExpanded);
+    ctx.restore();
+    return;
+  }
+
   const w = canvas.width;
   const h = canvas.height;
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
-
-  if (!vizData) return;
-
-  if (vizData.type === 'tape-lcd') {
-    drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpanded);
-    return;
-  }
   if (vizData.type === 'eq-curve') {
     drawEqCurve(ctx, w, h, vizData, accent, ink, inkDim, bg, border);
     return;
@@ -1075,6 +1094,23 @@ export function createDspView() {
   let overlayVizCanvas = null;
   let overlaySlotInfo = null;
 
+  function tickOverlay() {
+    const st = store.getState();
+    if (st.detailOverlay?.type === 'dsp' && overlayVizCanvas && overlaySlotInfo) {
+      const styles = getComputedStyle(document.documentElement);
+      const accent = styles.getPropertyValue('--accent').trim();
+      const ink = styles.getPropertyValue('--ink').trim();
+      const inkDim = styles.getPropertyValue('--ink-dim').trim();
+      const bg = styles.getPropertyValue('--bg').trim();
+      const border = styles.getPropertyValue('--border').trim();
+      const data = engine.getDeviceVisualizer(overlaySlotInfo.trackId, overlaySlotInfo.slotIdx);
+      drawVisualizer(overlayVizCanvas, data, accent, ink, inkDim, bg, border, true);
+    } else {
+      overlayVizCanvas = null;
+      overlaySlotInfo = null;
+    }
+  }
+
   function tick() {
     const st = store.getState();
     const styles = getComputedStyle(document.documentElement);
@@ -1088,14 +1124,7 @@ export function createDspView() {
       const data = engine.getDeviceVisualizer(st.selectedTrackId, ref.slotIdx);
       drawVisualizer(ref.canvas, data, accent, ink, inkDim, bg, border);
     }
-
-    if (st.detailOverlay?.type === 'dsp' && overlayVizCanvas && overlaySlotInfo) {
-      const data = engine.getDeviceVisualizer(overlaySlotInfo.trackId, overlaySlotInfo.slotIdx);
-      drawVisualizer(overlayVizCanvas, data, accent, ink, inkDim, bg, border, true);
-    } else {
-      overlayVizCanvas = null;
-      overlaySlotInfo = null;
-    }
+    tickOverlay();
   }
 
   function renderDevicePickerModal(modalEl) {
@@ -1178,9 +1207,12 @@ export function createDspView() {
     overlayVizCanvas.width = 960;
     overlayVizCanvas.height = 240;
     overlayVizCanvas.style.width = '100%';
-    overlayVizCanvas.style.height = '240px';
+    overlayVizCanvas.style.height = 'clamp(128px, 35vh, 210px)';
+    overlayVizCanvas.style.flexShrink = '0';
+    overlayVizCanvas.style.borderRadius = '6px';
     overlayVizCanvas.style.border = '1px solid var(--border)';
     overlaySlotInfo = { trackId, slotIdx };
+    requestAnimationFrame(() => tickOverlay());
 
     const allParams = [...def.meta.params, ...(def.meta.extendedParams || [])];
     const segParams = allParams.filter((p) => p.control === 'segmented' && Array.isArray(p.options));
@@ -1248,6 +1280,7 @@ export function createDspView() {
   return {
     el: root,
     tick,
+    tickOverlay,
     handleAction,
     renderDevicePickerModal,
     renderDetailOverlay

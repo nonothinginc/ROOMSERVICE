@@ -381,10 +381,23 @@ export function createNode(Tone) {
   dryWet.connect(output);
   output.connect(outMeter);
 
+  const rawCtx = Tone.getContext().rawContext;
+  const inAnalyser = rawCtx.createAnalyser();
+  const outAnalyser = rawCtx.createAnalyser();
+  inAnalyser.fftSize = 128;
+  outAnalyser.fftSize = 128;
+  inAnalyser.smoothingTimeConstant = 0;
+  outAnalyser.smoothingTimeConstant = 0;
+  const inTimeBuf = new Float32Array(128);
+  const outTimeBuf = new Float32Array(128);
+  Tone.connect(input, inAnalyser);
+  Tone.connect(outGain, outAnalyser);
+
   let workletNode = null;
   let disposed = false;
   let reelAngle = 0;
   let lastAngleTick = performance.now();
+  let lastWorkletMsgAt = 0;
 
   const state = {
     ips: 2,
@@ -449,7 +462,6 @@ export function createNode(Tone) {
 
   syncFallbackTone();
 
-  const rawCtx = Tone.getContext().rawContext;
   ensureTapeWorklet(rawCtx).then((ok) => {
     if (!ok || disposed) return;
     try {
@@ -461,6 +473,7 @@ export function createNode(Tone) {
       workletNode.port.onmessage = (ev) => {
         const d = ev.data;
         if (!d) return;
+        lastWorkletMsgAt = performance.now();
         telemetry.inPeak = d.inPeak || 0;
         telemetry.outPeak = d.outPeak || 0;
         telemetry.inRms = d.inRms || 0;
@@ -514,6 +527,39 @@ export function createNode(Tone) {
     reelAngle = (reelAngle + dt * 1.45 * speedFactor * wfJitter) % (Math.PI * 2);
 
     const m = Math.max(getMeter(), telemetry.outPeak || 0);
+
+    // Fallback live Analyser sampling whenever worklet telemetry is silent/loading
+    if (now - lastWorkletMsgAt > 180) {
+      inAnalyser.getFloatTimeDomainData(inTimeBuf);
+      outAnalyser.getFloatTimeDomainData(outTimeBuf);
+      let inPk = 0;
+      let outPk = 0;
+      const wIn = [];
+      const wOut = [];
+      const loop = [];
+      const preGain = 0.45 + (state.drive / 100) * 2.6;
+      for (let i = 0; i < 128; i += 4) {
+        const vi = inTimeBuf[i];
+        const vo = outTimeBuf[i];
+        const ai = Math.abs(vi);
+        const ao = Math.abs(vo);
+        if (ai > inPk) inPk = ai;
+        if (ao > outPk) outPk = ao;
+        wIn.push(vi);
+        wOut.push(vo);
+        if (loop.length < 48) {
+          loop.push(Math.max(-1, Math.min(1, vi * preGain * 0.65)));
+          loop.push(Math.max(-1, Math.min(1, vo * 1.15)));
+        }
+      }
+      telemetry.inPeak = inPk;
+      telemetry.outPeak = Math.max(outPk, m);
+      telemetry.satAmount = Math.max(0, Math.min(1, inPk * (0.4 + state.drive / 120 + state.sat / 160)));
+      telemetry.waveIn = wIn;
+      telemetry.waveOut = wOut;
+      telemetry.loopPts = loop;
+    }
+
     return {
       type: 'tape-lcd',
       ipsIdx,
@@ -546,6 +592,12 @@ export function createNode(Tone) {
         workletNode.port.onmessage = null;
         workletNode.disconnect();
       }
+    } catch {
+      // ignore
+    }
+    try {
+      inAnalyser.disconnect();
+      outAnalyser.disconnect();
     } catch {
       // ignore
     }

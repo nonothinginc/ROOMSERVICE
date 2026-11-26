@@ -249,6 +249,7 @@ function boot() {
     dotMatrix.tick();
     rightRail.tick();
     tickMpcOverlay();
+    views.DSP.tickOverlay?.();
     const activeView = views[store.getState().view];
     activeView?.tick?.();
     requestAnimationFrame(frame);
