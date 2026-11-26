@@ -1815,6 +1815,11 @@ export function createArrView() {
     };
 
     list.append(
+      makeBtn('LIBRARY', () => {
+        const step = st.playMode === 'SONG' ? Math.floor(st.currentStep / 16) * 16 : 0;
+        st.detailOverlay = { type: 'library', target: { kind: 'playlist', step } };
+        store.emit('overlay', st.detailOverlay);
+      }),
       makeBtn('+ NEW PATTERN', () => {
         let nextPat = 'P01';
         for (let i = 1; i <= 64; i++) {

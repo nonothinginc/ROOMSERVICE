@@ -7,6 +7,8 @@ import { createDotMatrixDisplay } from './ui/dot-matrix.js';
 import { createHeader, createLeftRail, createRightRail, renderHistoryOverlay, renderProjectModal } from './ui/header.js';
 import { renderInstMenuModal } from './ui/inst-menu.js';
 import { renderLabOverlay } from './ui/lab.js';
+import { closeLibrary, handleLibraryAction, renderLibraryOverlay } from './ui/library-view.js';
+import { library } from './library/library.js';
 import { createModeWheel } from './ui/mode-wheel.js';
 import { renderTriageModal } from './ui/triage.js';
 import { createArrView } from './ui/views/arr.js';
@@ -20,6 +22,8 @@ import { createRollView } from './ui/views/roll.js';
 function boot() {
   engine.init();
   input.init();
+  // Library metadata loads in the background (IndexedDB), audio decodes on demand
+  library.init();
 
   const unlockOnce = () => {
     engine.unlock();
@@ -81,6 +85,9 @@ function boot() {
     const st = store.getState();
     if (st.detailOverlay?.type !== 'lab') {
       engine.stopLabPreview();
+    }
+    if (st.detailOverlay?.type !== 'library') {
+      closeLibrary();
     }
     overlayRoot.innerHTML = '';
 
@@ -171,6 +178,9 @@ function boot() {
         renderHistoryOverlay(panel);
       } else if (st.detailOverlay.type === 'lab') {
         renderLabOverlay(panel);
+      } else if (st.detailOverlay.type === 'library') {
+        panel.classList.add('lib-panel');
+        renderLibraryOverlay(panel);
       } else if (st.detailOverlay.type === 'roll') {
         views.ROLL.renderDetailOverlay(panel);
       } else if (st.detailOverlay.type === 'arr' || st.detailOverlay.type === 'auto' || st.detailOverlay.type === 'audio') {
@@ -241,6 +251,10 @@ function boot() {
 
   input.onAction((action) => {
     const st = store.getState();
+    if (st.detailOverlay?.type === 'library') {
+      handleLibraryAction(action);
+      return;
+    }
     views[st.view]?.handleAction?.(action);
   });
 

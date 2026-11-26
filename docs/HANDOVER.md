@@ -3,7 +3,7 @@
 **Last Updated:** 2026-11-26  
 **Latest Source Commit (`main`):** see `git log` (Skin v2 reskin, session 03)  
 **Latest Live Deploy (`gh-pages`):** Skin v2 at `https://nonothinginc.github.io/ROOMSERVICE/`, pre-reskin look at `/ROOMSERVICE/legacy/` (tag `skin-legacy-v1`)  
-**Service Worker Cache:** `roomservice-v11` ([public/sw.js](../public/sw.js))  
+**Service Worker Cache:** `roomservice-v12` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -55,6 +55,7 @@ Every decision below came directly from user feedback and **must not be regresse
    - No outlined buttons; ghost / soft-key / primary / selector variants only. Engaged = red LED dot, never `ON/OFF` text. SVG icons only (no unicode control glyphs). Overlay titles `SECTION` + dim subtitle, no `//`. Close = single ✕ icon.
    - Red reserved for playhead, record, clip, active-view tick, LED, live hits. Rotary arcs are ink.
    - Mixer meters are user-approved: do not restyle them.
+   - LIBRARY (`src/library/`) is the home for samples; Tone runs on a native AudioContext (see ARCHITECTURE §2).
    - Run `node tools/ui-audit.mjs <url> <out> 640x480@2 640x424@2 853x640@1.5 1280x960@1 412x915@2.6` before deploying UI changes; it must report 0 issues.
 
 ---
@@ -76,6 +77,8 @@ Every decision below came directly from user feedback and **must not be regresse
 ## 3. Open Items & Immediate Next Priorities
 
 - **Pending User Review:** Skin v2 reskin + ring-button fix, playlist LOOP + >8-bar songs, playlist SAMPLE editor, Brickchord JAM (session 03). Compare look against `/ROOMSERVICE/legacy/`.
+- **Sample packs are never committed/deployed** (public repo; third-party licences). Users import packs on-device via LIBRARY.
+- **Next (agreed direction pending):** unification plan in `docs/sessions/2026-11-26-session-03.md` (LAB → LIBRARY CLIPS, JAM on all decks, factory kits in LIBRARY).
 - **Ideas not built yet:** JAM for LEAD deck and MPC pads; take comping (pick a take from the LAB back onto the loop); gamepad control inside the SAMPLE editor.
 - **Likely Next Follow-Ups:**
   1. Polish any mobile touch ergonomics / spacing quirks surfaced during phone testing (e.g., `MIX` pinned master width on sub-390px screens, `ARR` touch feel, or `MPC` pad editing on portrait phones).

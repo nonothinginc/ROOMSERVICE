@@ -50,11 +50,29 @@ function createMeterState() {
 
 const METER_TICKS_DB = [0, -6, -12, -24];
 
+// Meter canvases are measured by a ResizeObserver, never per frame: reading layout inside
+// the meter loop (interleaved with badge text writes) forced ~11 layouts per frame.
+const meterSizes = new WeakMap();
+const meterRO = typeof ResizeObserver !== 'undefined'
+  ? new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const box = e.contentRect;
+        meterSizes.set(e.target, { w: box.width, h: box.height });
+      }
+    })
+  : null;
+
 function drawStudioMeter(canvas, info, mState, isMaster = false) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const rect = canvas.getBoundingClientRect();
-  const cssW = rect.width || (isMaster ? 32 : 18);
-  const cssH = rect.height || 180;
+  let size = meterSizes.get(canvas);
+  if (!size) {
+    const rect = canvas.getBoundingClientRect();
+    size = { w: rect.width, h: rect.height };
+    meterSizes.set(canvas, size);
+    meterRO?.observe(canvas);
+  }
+  const cssW = size.w || (isMaster ? 32 : 18);
+  const cssH = size.h || 180;
   const w = Math.max(12, Math.round(cssW * dpr));
   const h = Math.max(40, Math.round(cssH * dpr));
   if (canvas.width !== w || canvas.height !== h) {
@@ -556,6 +574,8 @@ export function createMixView() {
       }
       peakBadge.classList.remove('clip', 'warm');
       peakBadge.textContent = '---';
+      peakBadge._txt = '---';
+      peakBadge._cls = '';
     };
     el.appendChild(peakBadge);
 
@@ -749,27 +769,31 @@ export function createMixView() {
     }
   }
 
+  // Only touch the DOM when the visible badge state changes (60-120 Hz loop)
+  function setBadge(el, text, cls) {
+    if (el._txt !== text) {
+      el._txt = text;
+      el.textContent = text;
+    }
+    if (el._cls !== cls) {
+      el._cls = cls;
+      el.classList.toggle('clip', cls === 'clip');
+      el.classList.toggle('warm', cls === 'warm');
+    }
+  }
+
   function updatePeakBadge(badgeEl, mState, isMaster = false) {
     if (!badgeEl) return;
     if (mState.clipLatched) {
-      badgeEl.classList.add('clip');
-      badgeEl.classList.remove('warm');
-      badgeEl.textContent = 'CLIP';
+      setBadge(badgeEl, 'CLIP', 'clip');
       return;
     }
-    badgeEl.classList.remove('clip');
     if (isMaster && mState.grHold >= 0.4) {
-      badgeEl.classList.add('warm');
-      badgeEl.textContent = `GR-${mState.grHold.toFixed(1)}`;
+      setBadge(badgeEl, `GR-${mState.grHold.toFixed(1)}`, 'warm');
       return;
     }
     const db = mState.peakDbHold;
-    badgeEl.classList.toggle('warm', db >= -6);
-    if (db <= -57) {
-      badgeEl.textContent = '---';
-    } else {
-      badgeEl.textContent = `${db >= 0 ? '+' : ''}${db.toFixed(1)}`;
-    }
+    setBadge(badgeEl, db <= -57 ? '---' : `${db >= 0 ? '+' : ''}${db.toFixed(1)}`, db >= -6 ? 'warm' : '');
   }
 
   function tick() {

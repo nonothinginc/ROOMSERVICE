@@ -174,7 +174,11 @@ class AudioEngine {
     this.initialized = true;
 
     try {
-      Tone.setContext(new Tone.Context({ latencyHint: 'interactive', lookAhead: 0.02, updateInterval: 0.015 }));
+      // Native AudioContext, not Tone's standardized-audio-context wrapper:
+      //  - native constructors (AudioWorkletNode in TAPE-1 / DRIVE, GainNode) accept it
+      //  - connect() skips the wrapper's whole-graph cycle detection on every per-hit node
+      const native = new window.AudioContext({ latencyHint: 'interactive' });
+      Tone.setContext(new Tone.Context({ context: native, lookAhead: 0.02, updateInterval: 0.015 }));
     } catch {
       try {
         const curCtx = Tone.getContext();

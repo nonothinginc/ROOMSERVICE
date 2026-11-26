@@ -617,6 +617,8 @@ export function createNode(Tone) {
     setParam,
     getMeter,
     getVisualizerData,
+    /** True while the hysteresis AudioWorklet is running (vs. the WaveShaper fallback). */
+    isWorkletLive: () => Boolean(workletNode) && performance.now() - lastWorkletMsgAt < 500,
     dispose
   };
 }

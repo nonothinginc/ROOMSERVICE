@@ -36,6 +36,11 @@ ROOMSERVICE/
 │   │   ├── tape.js              # Jiles-Atherton hysteresis AudioWorklet tape saturation + TE LCD ('tape-lcd')
 │   │   ├── delay.js             # Ping-pong delay + stereo tap dot matrix ('delay-grid')
 │   │   └── verb.js              # Reverb + concentric room contour visualizer ('reverb-depth')
+│   ├── library/
+│   │   ├── library.js           # Sample LIBRARY: import (ZIP/loose), LRU decode cache, tempo-synced audition, send → playlist/pad/chop/sampler
+│   │   ├── library-db.js        # IndexedDB 'roomservice-library' (packs, sample meta, original bytes) + storage.persist()
+│   │   ├── classify.js          # Category/BPM/beats/root/key from folder+file names, audio fallback (BPM detect, autocorrelation pitch)
+│   │   └── zip-read.js          # ZIP reader (STORE + DEFLATE via native DecompressionStream), lazy per-entry inflate
 │   ├── input/
 │   │   └── gamepad.js           # 120Hz Web Gamepad API + calibration/virtual sticks + L3 wheel + R2 Punch-In + raw performance
 │   ├── state/
@@ -66,6 +71,7 @@ ROOMSERVICE/
 
 ## 2. Audio Signal Flow & Latency Model
 
+- **Native AudioContext:** Tone runs on a native `window.AudioContext` (not the standardized-audio-context wrapper) so native constructors (`AudioWorkletNode` in TAPE-1/DRIVE) work and per-hit `connect()` skips whole-graph cycle detection. Never reintroduce `new Tone.Context({...})` without `context:`.
 - **Context Tuning (`src/audio/engine.js`):** Configured on init with `latencyHint: 'interactive'`, `lookAhead: 0.02` (`20ms`), and `updateInterval: 0.015`.
 - **Zero-Wait Live Triggers:** `Tone.immediate()` is used across all voice monotonic schedulers (`mono303.js`, `drum8.js`, `polyfm.js`, `grain1.js`), and `engine.previewNote()` executes synchronously whenever `store.getState().audioUnlocked` is true.
 - **Channel Routing:**
@@ -99,3 +105,11 @@ All `.js` files inside `/src/devices/` are automatically discovered by `src/devi
   - `lab.json` (LAB vault items with saved instrument state & MIDI notes)
   - `sessions.json` (session checkpoint history)
   - `samples/*.wav` and `pads/*.wav` (embedded PCM WAV audio buffers)
+
+## 5. Sample Library (`src/library/`)
+
+- Packs are imported on the device (never bundled: third-party packs have no redistribution grant and the repo is public).
+- Import: `.zip` (shared top folder stripped) or loose audio. Each file is decoded once to classify (category from parent folder + file name, BPM from `NNN bpm` in the path, loop length snapped to musical beats, autocorrelation root for single-note material), then stored as original bytes + metadata. Sample ids are the full path slug (never truncated).
+- Audio is decoded on demand into an LRU cache (96 MB). Loop previews are re-pitched to the project tempo and start on the next beat when the transport runs.
+- `library.send(id, { kind })`: `playlist` (first loop into an empty song sets project BPM; lane auto-picked; warp BEATS for loops, RE-PITCH for one-shots), `pad`, `chop` (MPC transient chop), `sampler` (new GRAIN-1 channel).
+- Entry points: rail folder icon (generic), MPC `LIBRARY` (targets the selected pad), ARR `+` → `LIBRARY` (targets the playhead bar).

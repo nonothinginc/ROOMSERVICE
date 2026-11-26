@@ -325,6 +325,7 @@ const RAIL_ICONS = {
   MIX: `<svg viewBox="0 0 20 20"><line x1="5" y1="16" x2="5" y2="9"/><line x1="10" y1="16" x2="10" y2="4"/><line x1="15" y1="16" x2="15" y2="11"/></svg>`,
   DSP: `<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="1.5" fill="currentColor" stroke="none"/></svg>`,
   LAB: `<svg viewBox="0 0 20 20"><path d="M5 4h10v12l-5-3-5 3z"/></svg>`,
+  LIBRARY: `<svg viewBox="0 0 20 20"><path d="M3 6.5V15a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-6L8.5 5H4a1 1 0 0 0-1 1.5z"/></svg>`,
   PROJECT: `<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="3"/><path d="M10 3v2M10 15v2M3 10h2M15 10h2M5.1 5.1l1.4 1.4M13.5 13.5l1.4 1.4M14.9 5.1l-1.4 1.4M6.5 13.5l-1.4 1.4"/></svg>`
 };
 
@@ -364,6 +365,18 @@ export function createLeftRail() {
   };
   topGroup.appendChild(labBtn);
 
+  const libBtn = document.createElement('button');
+  libBtn.className = 'rail-btn';
+  libBtn.title = 'LIBRARY';
+  libBtn.innerHTML = RAIL_ICONS.LIBRARY;
+  libBtn.onclick = () => {
+    engine.unlock();
+    const st = store.getState();
+    st.detailOverlay = { type: 'library' };
+    store.emit('overlay', st.detailOverlay);
+  };
+  topGroup.appendChild(libBtn);
+
   const botGroup = document.createElement('div');
   botGroup.className = 'rail-nav-group';
 
@@ -397,6 +410,7 @@ export function createLeftRail() {
       v.btn.classList.toggle('active', st.view === v.name && !st.detailOverlay);
     }
     labBtn.classList.toggle('active', st.detailOverlay?.type === 'lab');
+    libBtn.classList.toggle('active', st.detailOverlay?.type === 'library');
     labDot.style.display = st.lab.length > 0 ? 'block' : 'none';
     projBtn.classList.toggle('active', st.detailOverlay?.type === 'project' || st.detailOverlay?.type === 'history');
   }

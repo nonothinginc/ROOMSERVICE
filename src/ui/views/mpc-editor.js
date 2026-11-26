@@ -241,8 +241,13 @@ export function renderMpcEditor(panelEl, trackId) {
     if (isRack) {
       const addPoolBtn = document.createElement('button');
       addPoolBtn.className = 'ctx-chip solid';
-      addPoolBtn.textContent = `+ POOL (${pool.length})`;
-      addPoolBtn.onclick = () => poolFileInput.click();
+      addPoolBtn.textContent = 'LIBRARY';
+      addPoolBtn.title = `Load a sample onto pad ${selectedPad + 1}`;
+      addPoolBtn.onclick = () => {
+        const s = store.getState();
+        s.detailOverlay = { type: 'library', target: { kind: 'pad', trackId, padIdx: selectedPad } };
+        store.emit('overlay', s.detailOverlay);
+      };
       hdrRight.appendChild(addPoolBtn);
     }
 

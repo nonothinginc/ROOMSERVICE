@@ -1,4 +1,4 @@
-const CACHE_NAME = 'roomservice-v11';
+const CACHE_NAME = 'roomservice-v12';
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -25,6 +25,25 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/src/') ||
     url.pathname.startsWith('/node_modules/')
   ) {
+    return;
+  }
+
+  // Content-hashed bundles and factory samples never change under the same URL:
+  // serve them from cache instantly (offline-first launch on the handheld).
+  if (/\/assets\/|\/samples\//.test(url.pathname)) {
+    event.respondWith(
+      caches.match(request).then(
+        (cached) =>
+          cached ||
+          fetch(request).then((res) => {
+            if (res && res.status === 200 && res.type === 'basic') {
+              const clone = res.clone();
+              caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+            }
+            return res;
+          })
+      )
+    );
     return;
   }
 
