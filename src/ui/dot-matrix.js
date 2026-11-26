@@ -149,25 +149,19 @@ export function createDotMatrixDisplay() {
     header.appendChild(modeBar);
 
     const body = document.createElement('div');
-    body.className = 'overlay-body';
-    body.style.display = 'grid';
-    body.style.gridTemplateColumns = '340px 1fr';
-    body.style.gap = '16px';
-    body.style.alignItems = 'center';
+    body.className = 'overlay-body dm-overlay-grid';
 
     overlayCanvas = document.createElement('canvas');
+    overlayCanvas.className = 'dm-overlay-canvas';
     overlayCanvas.width = 640;
     overlayCanvas.height = 640;
-    overlayCanvas.style.width = '320px';
-    overlayCanvas.style.height = '320px';
-    overlayCanvas.style.borderRadius = '50%';
-    overlayCanvas.style.border = '1px solid var(--border-strong)';
     overlayCtx = overlayCanvas.getContext('2d');
 
     const right = document.createElement('div');
     right.style.display = 'flex';
     right.style.flexDirection = 'column';
-    right.style.gap = '12px';
+    right.style.gap = '10px';
+    right.style.minWidth = '0';
 
     const telGrid = document.createElement('div');
     telGrid.className = 'telemetry-grid';
@@ -204,9 +198,55 @@ export function createDotMatrixDisplay() {
     axesEl.innerHTML = `<span class="k">ANALOG L/R</span><span class="v">0.00 / 0.00</span>`;
     telemetryEls.axes = axesEl.querySelector('.v');
 
+    // Hardware Stick Calibration & Virtual-Stick Toggle
+    const calBar = document.createElement('div');
+    calBar.className = 'cal-bar';
+
+    const zeroBtn = document.createElement('button');
+    zeroBtn.className = 'ctx-chip';
+    zeroBtn.textContent = 'ZERO CAL';
+    zeroBtn.onclick = () => {
+      input.calibrateZero();
+      syncCalLabels();
+    };
+
+    const dzBtn = document.createElement('button');
+    dzBtn.className = 'ctx-chip';
+    dzBtn.onclick = () => {
+      const cur = input.getCalibration().deadzone;
+      const next = cur >= 0.25 ? 0.08 : +(cur + 0.04).toFixed(2);
+      input.setDeadzone(next);
+      syncCalLabels();
+    };
+
+    const modeBtn = document.createElement('button');
+    modeBtn.className = 'ctx-chip';
+    modeBtn.onclick = () => {
+      input.cycleStickMode();
+      syncCalLabels();
+    };
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'ctx-chip';
+    resetBtn.textContent = 'RESET';
+    resetBtn.onclick = () => {
+      input.resetCalibration();
+      syncCalLabels();
+    };
+
+    function syncCalLabels() {
+      const c = input.getCalibration();
+      dzBtn.textContent = `DZ ${Math.round(c.deadzone * 100)}%`;
+      modeBtn.textContent = `STICKS ${c.stickMode}`;
+      modeBtn.classList.toggle('active', c.stickMode !== 'AUTO');
+    }
+    syncCalLabels();
+    calBar.append(zeroBtn, dzBtn, modeBtn, resetBtn);
+
     right.appendChild(telGrid);
     right.appendChild(padGrid);
     right.appendChild(axesEl);
+    right.appendChild(calBar);
 
     body.appendChild(overlayCanvas);
     body.appendChild(right);
@@ -215,6 +255,8 @@ export function createDotMatrixDisplay() {
     containerEl.appendChild(body);
   }
 
+  const smoothAxes = [0, 0, 0, 0];
+
   function tick() {
     drawMatrix(ctx, canvas.width, canvas.height, 15, MODES[modeIdx]);
 
@@ -222,6 +264,9 @@ export function createDotMatrixDisplay() {
       drawMatrix(overlayCtx, overlayCanvas.width, overlayCanvas.height, 41, MODES[modeIdx]);
       const tel = engine.getTelemetry();
       const pad = input.getGamepadState();
+      for (let i = 0; i < 4; i++) {
+        smoothAxes[i] += ((pad.axes[i] || 0) - smoothAxes[i]) * 0.25;
+      }
       if (telemetryEls) {
         telemetryEls.state.textContent = tel.state;
         telemetryEls.sampleRate.textContent = `${tel.sampleRate}Hz`;
@@ -229,7 +274,7 @@ export function createDotMatrixDisplay() {
         telemetryEls.fps.textContent = `${tel.fps}`;
         telemetryEls.activeVoices.textContent = `${tel.activeVoices}`;
         telemetryEls.padId.textContent = pad.connected ? 'RG477V' : 'KEYS';
-        telemetryEls.axes.textContent = `L(${pad.axes[0].toFixed(2)},${pad.axes[1].toFixed(2)}) R(${pad.axes[2].toFixed(2)},${pad.axes[3].toFixed(2)})`;
+        telemetryEls.axes.textContent = `L(${smoothAxes[0].toFixed(2)},${smoothAxes[1].toFixed(2)}) R(${smoothAxes[2].toFixed(2)},${smoothAxes[3].toFixed(2)})`;
       }
       padCells.forEach((cell, i) => {
         cell.classList.toggle('on', Boolean(pad.buttons[i]));

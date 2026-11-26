@@ -865,6 +865,38 @@ export function createDspView() {
     sp.className = 'ctx-spacer';
     strip.appendChild(sp);
 
+    const rndFxBtn = document.createElement('button');
+    rndFxBtn.className = 'ctx-chip';
+    rndFxBtn.textContent = 'RND FX';
+    rndFxBtn.title = 'Randomize Track FX Chain';
+    rndFxBtn.onclick = () => {
+      engine.unlock();
+      store.pushHistory(`${tr.code} RND FX`);
+      if (tr.inserts.length <= 2) {
+        const fxPool = ['tape', 'drive', 'delay', 'verb'];
+        const pick = fxPool[Math.floor(Math.random() * fxPool.length)];
+        store.addInsertDevice(tr.id, pick);
+      }
+      const updated = store.getState().tracks[tr.id];
+      updated.inserts.forEach((slot, sIdx) => {
+        if (sIdx === 0 || slot.bypass) return;
+        const slotDef = getDevice(slot.deviceId);
+        if (!slotDef) return;
+        slotDef.meta.params.forEach((p) => {
+          if (p.id === 'out' || p.id === 'gain') return;
+          if (p.control === 'segmented' && Array.isArray(p.options)) {
+            store.setDeviceParam(tr.id, sIdx, p.id, Math.floor(Math.random() * p.options.length));
+          } else {
+            const norm = 0.2 + Math.random() * 0.65;
+            const val = p.min + norm * (p.max - p.min);
+            store.setDeviceParam(tr.id, sIdx, p.id, val);
+          }
+        });
+      });
+      render();
+    };
+    strip.appendChild(rndFxBtn);
+
     const addBtn = document.createElement('button');
     addBtn.className = 'ctx-chip solid';
     addBtn.textContent = '+ FX';
@@ -941,6 +973,17 @@ export function createDspView() {
         };
         actions.appendChild(padBtn);
       } else if (slotIdx === 0) {
+        if (['mono303', 'polyfm', 'grain1'].includes(slot.deviceId)) {
+          const leadBtn = document.createElement('button');
+          leadBtn.className = 'ctx-chip active';
+          leadBtn.textContent = 'LEAD';
+          leadBtn.onclick = (e) => {
+            e.stopPropagation();
+            st.detailOverlay = { type: 'lead', trackId: tr.id };
+            store.emit('overlay', st.detailOverlay);
+          };
+          actions.appendChild(leadBtn);
+        }
         const swap = document.createElement('button');
         swap.className = 'ctx-chip';
         swap.textContent = 'SWAP';

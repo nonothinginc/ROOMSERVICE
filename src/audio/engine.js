@@ -3,6 +3,7 @@ import { getDevice } from '../device-registry.js';
 import { nextId, store } from '../state/store.js';
 import { analyzeAudioBuffer } from './bpm-detector.js';
 import { addUserSampleBuffer, ensureFactoryDrumKits, getSamplePool } from './drum-kits.js';
+import { createPunchFx } from './punch-fx.js';
 
 function evalAutoClip(autoClip, normX) {
   const pts = autoClip.points;
@@ -139,6 +140,7 @@ class AudioEngine {
     this.returnAGain = null;
     this.returnBGain = null;
     this.masterBus = null;
+    this.punchFx = null;
     this.masterGain = null;
     this.limiter = null;
     this.masterMeter = null;
@@ -150,6 +152,8 @@ class AudioEngine {
     this.waveformAnalyser = null;
     this.fftAnalyser = null;
     this.repeatId = null;
+    this.countInTimer = null;
+    this.droneState = { active: false, rootMidi: 48, rx: 0, ry: 0, hold: false, oscs: [], filter: null, gain: null };
 
     this.activeAudioSources = new Map();
     this.samplerBuffers = new Map();
@@ -185,6 +189,7 @@ class AudioEngine {
     transport.swingSubdivision = '16n';
 
     this.masterBus = new Tone.Gain(1);
+    this.punchFx = createPunchFx(Tone);
     this.masterGain = new Tone.Gain(state.master.volume);
     this.limiter = new Tone.Limiter(state.master.limiterCeiling);
     this.masterMeter = new Tone.Meter({ smoothing: 0.72 });
@@ -197,7 +202,8 @@ class AudioEngine {
     this.returnAStereoMeter = createStereoMeter(rawCtx);
     this.returnBStereoMeter = createStereoMeter(rawCtx);
 
-    this.masterBus.connect(this.masterGain);
+    this.masterBus.connect(this.punchFx.input);
+    this.punchFx.output.connect(this.masterGain);
     this.masterGain.connect(this.limiter);
     Tone.connect(this.masterGain, this.masterPreMeter.input);
     this.limiter.connect(this.masterMeter);
@@ -675,11 +681,60 @@ class AudioEngine {
     store.setPatternSwing(st.activePatternId, clamped);
   }
 
+  playMetronomeClick(time, isDownbeat = false) {
+    if (!this.masterGain) return;
+    try {
+      const rawCtx = Tone.getContext().rawContext;
+      const t = typeof time === 'number' ? Math.max(rawCtx.currentTime, time) : rawCtx.currentTime;
+      const osc = rawCtx.createOscillator();
+      const gain = rawCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(isDownbeat ? 1560 : 1040, t);
+      osc.frequency.exponentialRampToValueAtTime(isDownbeat ? 820 : 560, t + 0.028);
+
+      const amp = isDownbeat ? 0.22 : 0.13;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(amp, t + 0.002);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+
+      osc.connect(gain);
+      Tone.connect(gain, this.masterGain);
+      osc.start(t);
+      osc.stop(t + 0.055);
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          gain.disconnect();
+        } catch {
+          // ignore
+        }
+      };
+    } catch {
+      // ignore if locked
+    }
+  }
+
+  cancelCountIn() {
+    if (this.countInTimer != null) {
+      clearInterval(this.countInTimer);
+      this.countInTimer = null;
+    }
+    const st = store.getState();
+    if (st.countInBeat !== 0) {
+      st.countInBeat = 0;
+      store.emit('transport', { countInBeat: 0 });
+    }
+  }
+
   async togglePlay() {
     await this.unlock();
     this.stopLabPreview();
     const st = store.getState();
     const transport = Tone.getTransport();
+    if (this.countInTimer != null) {
+      this.cancelCountIn();
+      return;
+    }
     if (st.isPlaying) {
       transport.stop();
       this.stopAllAudioClips();
@@ -687,12 +742,47 @@ class AudioEngine {
         ch.insertNodes[0]?.node.releaseAll?.(Tone.immediate());
       }
       st.isPlaying = false;
-    } else {
-      st.currentStep = 0;
-      transport.start('+0.005');
-      st.isPlaying = true;
+      store.emit('transport', { isPlaying: false });
+      return;
     }
-    store.emit('transport', { isPlaying: st.isPlaying });
+
+    if (st.isRecording && st.countIn) {
+      let beat = 1;
+      const beatMs = (60 / Math.max(40, st.bpm)) * 1000;
+      const tickCount = () => {
+        if (!store.getState().countIn || !store.getState().isRecording) {
+          this.cancelCountIn();
+          return;
+        }
+        st.countInBeat = beat;
+        this.playMetronomeClick(Tone.immediate(), beat === 1);
+        store.emit('transport', { countInBeat: beat });
+        if (beat >= 4) {
+          clearInterval(this.countInTimer);
+          this.countInTimer = null;
+          setTimeout(() => {
+            if (store.getState().countInBeat !== 4) return;
+            st.countInBeat = 0;
+            st.currentStep = 0;
+            transport.start('+0.005');
+            st.isPlaying = true;
+            store.emit('transport', { isPlaying: true, countInBeat: 0 });
+          }, beatMs);
+        } else {
+          beat++;
+        }
+      };
+      tickCount();
+      if (this.countInTimer == null && beat <= 4) {
+        this.countInTimer = setInterval(tickCount, beatMs);
+      }
+      return;
+    }
+
+    st.currentStep = 0;
+    transport.start('+0.005');
+    st.isPlaying = true;
+    store.emit('transport', { isPlaying: true });
   }
 
   async toggleRecord() {
@@ -728,7 +818,14 @@ class AudioEngine {
         const pat = st.patterns[st.activePatternId];
         if (pat) {
           const patLen = pat.length || 16;
-          const snap = st.gridSnapAuto ? 1 : Math.max(0.25, st.gridSnap || 1);
+          const snap =
+            st.recQuant === 0
+              ? 0.25
+              : st.recQuant > 0
+                ? st.recQuant
+                : st.gridSnapAuto
+                  ? 1
+                  : Math.max(0.25, st.gridSnap || 1);
           const rawStep = st.currentStep % patLen;
           const qStep = (Math.round(rawStep / snap) * snap) % patLen;
           const curNotes = store.getActiveNotes(trackId, st.activePatternId);
@@ -766,7 +863,14 @@ class AudioEngine {
     if (!pat) return false;
 
     const patLen = pat.length || 16;
-    const snap = st.gridSnapAuto ? 1 : Math.max(0.25, st.gridSnap || 1);
+    const snap =
+      st.recQuant === 0
+        ? 0.25
+        : st.recQuant > 0
+          ? st.recQuant
+          : st.gridSnapAuto
+            ? 1
+            : Math.max(0.25, st.gridSnap || 1);
     const rawStep = st.isPlaying
       ? st.currentStep % patLen
       : Math.floor(st.currentStep || 0) % patLen;
@@ -808,6 +912,10 @@ class AudioEngine {
     const st = store.getState();
     const step = st.currentStep;
     const stepDur = (60 / st.bpm) / 4;
+
+    if (step % 4 === 0 && (st.metronome === 'on' || (st.metronome === 'rec' && st.isRecording))) {
+      this.playMetronomeClick(time, step % 16 === 0);
+    }
 
     if (st.playMode === 'PAT') {
       const pat = st.patterns[st.activePatternId];
@@ -1118,6 +1226,122 @@ class AudioEngine {
       return true;
     }
     return false;
+  }
+
+  setPunchFx(x, y, hold = null) {
+    return this.punchFx?.setXY(x, y, hold) || { x: 0, y: 0, hold: false, active: false, label: 'BYPASS' };
+  }
+
+  togglePunchHold() {
+    return this.punchFx?.toggleHold() || false;
+  }
+
+  getPunchState() {
+    return this.punchFx?.getState() || { x: 0, y: 0, hold: false, active: false, label: 'BYPASS' };
+  }
+
+  startDrone(rootMidi = 48) {
+    if (!this.masterBus) return;
+    this.stopDrone();
+    const rawCtx = Tone.getContext().rawContext;
+    const now = rawCtx.currentTime;
+    const freq = 440 * Math.pow(2, (rootMidi - 69) / 12);
+
+    const filter = rawCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 520;
+    filter.Q.value = 1.4;
+
+    const gain = rawCtx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.16, now + 0.45);
+
+    const specs = [
+      { type: 'sawtooth', mult: 1, det: -6, lvl: 0.36 },
+      { type: 'sawtooth', mult: 1, det: 6, lvl: 0.36 },
+      { type: 'triangle', mult: 1.5, det: 2, lvl: 0.24 },
+      { type: 'sine', mult: 0.5, det: 0, lvl: 0.45 }
+    ];
+    const oscs = specs.map((sp) => {
+      const osc = rawCtx.createOscillator();
+      const g = rawCtx.createGain();
+      osc.type = sp.type;
+      osc.frequency.setValueAtTime(freq * sp.mult, now);
+      if (sp.det) osc.detune.setValueAtTime(sp.det, now);
+      g.gain.value = sp.lvl;
+      osc.connect(g);
+      g.connect(filter);
+      osc.start(now);
+      return osc;
+    });
+
+    filter.connect(gain);
+    Tone.connect(gain, this.masterBus);
+    this.droneState = {
+      active: true,
+      rootMidi,
+      rx: this.droneState.rx,
+      ry: this.droneState.ry,
+      hold: this.droneState.hold,
+      oscs,
+      filter,
+      gain
+    };
+    this.setDroneXY(this.droneState.rx, this.droneState.ry);
+  }
+
+  stopDrone() {
+    const d = this.droneState;
+    if (!d.active) return;
+    try {
+      const rawCtx = Tone.getContext().rawContext;
+      const now = rawCtx.currentTime;
+      d.gain?.gain.cancelScheduledValues(now);
+      d.gain?.gain.setTargetAtTime(0.0001, now, 0.14);
+      const oscs = d.oscs || [];
+      const filter = d.filter;
+      const gain = d.gain;
+      setTimeout(() => {
+        try {
+          for (const o of oscs) {
+            o.stop();
+            o.disconnect();
+          }
+          filter?.disconnect();
+          gain?.disconnect();
+        } catch {
+          // ignore
+        }
+      }, 450);
+    } catch {
+      // ignore
+    }
+    this.droneState = { ...d, active: false, oscs: [], filter: null, gain: null };
+  }
+
+  setDroneXY(rx = 0, ry = 0, toggleHold = null) {
+    const d = this.droneState;
+    if (toggleHold === 'toggle') {
+      d.hold = !d.hold;
+      return { ...d };
+    }
+    if (d.hold && toggleHold === null) return { ...d };
+    d.rx = Math.max(-1, Math.min(1, rx || 0));
+    d.ry = Math.max(-1, Math.min(1, ry || 0));
+    if (d.active && d.filter && d.gain) {
+      const now = Tone.getContext().rawContext.currentTime;
+      const cut = 220 * Math.pow(8, (d.rx + 1) * 0.5);
+      const lvl = 0.08 + (-d.ry * 0.5 + 0.5) * 0.18;
+      d.filter.frequency.setTargetAtTime(cut, now, 0.03);
+      d.filter.Q.setTargetAtTime(1 + Math.max(0, d.rx) * 4, now, 0.03);
+      d.gain.gain.setTargetAtTime(Math.max(0.03, Math.min(0.28, lvl)), now, 0.04);
+    }
+    return { ...d };
+  }
+
+  getDroneState() {
+    const d = this.droneState;
+    return { active: d.active, rootMidi: d.rootMidi, rx: d.rx, ry: d.ry, hold: d.hold };
   }
 
   tickFps(now) {

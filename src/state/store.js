@@ -80,9 +80,12 @@ const initialState = {
   playMode: 'PAT', // 'PAT' | 'SONG'
   isPlaying: false,
   isRecording: false,
+  metronome: 'rec', // 'off' | 'rec' | 'on'
+  countIn: false,
+  countInBeat: 0,
+  recQuant: 1, // 0 = FREE(1/64), 1 = 1/16, 2 = 1/8, 4 = 1/4
   audioUnlocked: false,
   bpm: 124,
-  swing: 0,
   currentStep: 0,
   projectName: 'UNTITLED',
   hasSavedSession: false,
@@ -192,7 +195,6 @@ function captureSnapshot() {
 
   return {
     bpm: st.bpm,
-    swing: st.swing,
     playMode: st.playMode,
     projectName: st.projectName,
     selectedTrackId: st.selectedTrackId,
@@ -232,7 +234,6 @@ function captureSnapshot() {
 function applySnapshot(snap) {
   const st = initialState;
   st.bpm = snap.bpm;
-  st.swing = snap.swing;
   st.playMode = snap.playMode;
   if (snap.projectName) st.projectName = snap.projectName;
   st.selectedTrackId = Math.max(0, Math.min(7, snap.selectedTrackId));

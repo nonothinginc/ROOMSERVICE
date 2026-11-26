@@ -1,9 +1,9 @@
 # ROOMSERVICE — Session Handover Hub
 
 **Last Updated:** 2026-11-26  
-**Latest Source Commit (`main`):** `876d687` + Piano Roll clip & `100dvh` viewport fix  
+**Latest Source Commit (`main`):** pending commit (`Brickchord cross-component upgrades & final responsive dimensions/cleanup pass`)  
 **Latest Live Deploy (`gh-pages`):** deploying (`https://nonothinginc.github.io/ROOMSERVICE/`)  
-**Service Worker Cache:** `roomservice-v8` ([public/sw.js](../public/sw.js))  
+**Service Worker Cache:** `roomservice-v9` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---

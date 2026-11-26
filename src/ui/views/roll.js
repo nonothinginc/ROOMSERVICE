@@ -78,6 +78,15 @@ export function createRollView() {
     store.emit('overlay', st.detailOverlay);
   };
 
+  const leadChip = document.createElement('button');
+  leadChip.className = 'ctx-chip active';
+  leadChip.textContent = 'LEAD';
+  leadChip.onclick = () => {
+    const st = store.getState();
+    st.detailOverlay = { type: 'lead', trackId: st.selectedTrackId };
+    store.emit('overlay', st.detailOverlay);
+  };
+
   const lenChip = document.createElement('button');
   lenChip.className = 'ctx-chip';
   lenChip.title = 'Pattern Length (Beats / Steps)';
@@ -174,6 +183,7 @@ export function createRollView() {
     trackChip,
     mpcChip,
     brickChip,
+    leadChip,
     scaleChip,
     Object.assign(document.createElement('div'), { className: 'ctx-spacer' }),
     lenChip,
@@ -261,6 +271,12 @@ export function createRollView() {
     const st = store.getState();
     const tr = st.tracks[st.selectedTrackId];
     return tr?.inserts[0]?.deviceId === 'brickchord';
+  }
+
+  function isLeadSynthTrack() {
+    const st = store.getState();
+    const tr = st.tracks[st.selectedTrackId];
+    return ['mono303', 'polyfm', 'grain1'].includes(tr?.inserts[0]?.deviceId);
   }
 
   function getKeyWidth() {
@@ -867,10 +883,12 @@ export function createRollView() {
     const patLen = pat?.length || 16;
     const drumMode = isDrumTrack();
     const brickMode = isBrickchordTrack();
+    const leadMode = isLeadSynthTrack();
     trackChip.textContent = `${tr.code} ${tr.name} ▾`;
 
     mpcChip.style.display = drumMode ? 'inline-flex' : 'none';
     brickChip.style.display = brickMode ? 'inline-flex' : 'none';
+    leadChip.style.display = leadMode ? 'inline-flex' : 'none';
     scaleChip.style.display = drumMode ? 'none' : 'inline-flex';
 
     if (drumMode) {
@@ -1650,7 +1668,39 @@ export function createRollView() {
       store.emit('overlay', st.detailOverlay);
     };
 
-    gridBar.append(snapBtn, zoomResetBtn, ghostBtn, slideBtn, lockBtn, labBtn);
+    const recQBtn = document.createElement('button');
+    recQBtn.className = `ctx-chip ${st.recQuant !== 0 ? 'active' : ''}`;
+    const fmtRecQ = (v) => (v === 0 ? 'OFF' : v === 1 ? '1/16' : v === 2 ? '1/8' : '1/4');
+    recQBtn.textContent = `REC Q: ${fmtRecQ(st.recQuant)}`;
+    recQBtn.onclick = () => {
+      const order = [1, 2, 4, 0];
+      st.recQuant = order[(order.indexOf(st.recQuant) + 1) % order.length];
+      recQBtn.textContent = `REC Q: ${fmtRecQ(st.recQuant)}`;
+      recQBtn.classList.toggle('active', st.recQuant !== 0);
+    };
+
+    const clkBtn = document.createElement('button');
+    clkBtn.className = `ctx-chip ${st.metronome !== 'off' ? 'active' : ''}`;
+    clkBtn.textContent = `CLK: ${(st.metronome || 'rec').toUpperCase()}`;
+    clkBtn.onclick = () => {
+      const order = ['off', 'rec', 'on'];
+      st.metronome = order[(order.indexOf(st.metronome || 'rec') + 1) % order.length];
+      clkBtn.textContent = `CLK: ${st.metronome.toUpperCase()}`;
+      clkBtn.classList.toggle('active', st.metronome !== 'off');
+      store.emit('transport', { metronome: st.metronome });
+    };
+
+    const countBtn = document.createElement('button');
+    countBtn.className = `ctx-chip ${st.countIn ? 'active' : ''}`;
+    countBtn.textContent = `COUNT-IN: ${st.countIn ? '1B' : 'OFF'}`;
+    countBtn.onclick = () => {
+      st.countIn = !st.countIn;
+      countBtn.textContent = `COUNT-IN: ${st.countIn ? '1B' : 'OFF'}`;
+      countBtn.classList.toggle('active', st.countIn);
+      store.emit('transport', { countIn: st.countIn });
+    };
+
+    gridBar.append(snapBtn, zoomResetBtn, ghostBtn, slideBtn, lockBtn, recQBtn, clkBtn, countBtn, labBtn);
     if (isDrumTrack()) {
       const dBtn = document.createElement('button');
       const curM = Math.round(st.tracks[st.selectedTrackId]?.inserts[0]?.params.mode || 0);

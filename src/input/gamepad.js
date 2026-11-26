@@ -20,13 +20,41 @@ const BTN = {
   RIGHT: 15
 };
 
-const DEADZONE = 0.15;
+const DEADZONE_DEFAULT = 0.15;
 const LONG_PRESS_MS = 450;
+const CAL_KEY = 'roomservice_pad_cal_v1';
+const STICK_MODES = ['AUTO', 'ANALOG', 'VIRTUAL'];
 
-function applyDeadzone(v) {
-  if (Math.abs(v) < DEADZONE) return 0;
+function loadCal() {
+  try {
+    const raw = localStorage.getItem(CAL_KEY);
+    if (raw) {
+      const p = JSON.parse(raw);
+      return {
+        deadzone: Math.max(0.05, Math.min(0.35, Number(p.deadzone) || DEADZONE_DEFAULT)),
+        offsets: Array.isArray(p.offsets) && p.offsets.length === 4 ? p.offsets.map(Number) : [0, 0, 0, 0],
+        stickMode: STICK_MODES.includes(p.stickMode) ? p.stickMode : 'AUTO'
+      };
+    }
+  } catch {
+    // ignore
+  }
+  return { deadzone: DEADZONE_DEFAULT, offsets: [0, 0, 0, 0], stickMode: 'AUTO' };
+}
+
+function saveCal(cal) {
+  try {
+    localStorage.setItem(CAL_KEY, JSON.stringify(cal));
+  } catch {
+    // ignore
+  }
+}
+
+function applyCalAxis(rawVal, offset, dz) {
+  const v = Math.max(-1, Math.min(1, (rawVal || 0) - (offset || 0)));
+  if (Math.abs(v) < dz) return 0;
   const sign = Math.sign(v);
-  return (sign * (Math.abs(v) - DEADZONE)) / (1 - DEADZONE);
+  return (sign * (Math.abs(v) - dz)) / (1 - dz);
 }
 
 class InputController {
@@ -42,6 +70,10 @@ class InputController {
 
     this.handlers = new Set();
     this.rawPadListeners = new Set();
+    this.wheelListeners = new Set();
+    this.cal = loadCal();
+    this.rawAxes = [0, 0, 0, 0];
+    this.r2PunchActive = false;
     this.diagState = {
       connected: false,
       id: 'KEYBOARD',
@@ -58,6 +90,47 @@ class InputController {
   onRawPad(fn) {
     this.rawPadListeners.add(fn);
     return () => this.rawPadListeners.delete(fn);
+  }
+
+  onWheel(fn) {
+    this.wheelListeners.add(fn);
+    return () => this.wheelListeners.delete(fn);
+  }
+
+  emitWheel(ev) {
+    for (const fn of this.wheelListeners) {
+      try {
+        fn(ev);
+      } catch (err) {
+        console.error('[input] wheel handler error', err);
+      }
+    }
+  }
+
+  getCalibration() {
+    return { ...this.cal, offsets: [...this.cal.offsets] };
+  }
+
+  setDeadzone(dz) {
+    this.cal.deadzone = Math.max(0.05, Math.min(0.35, Number(dz) || DEADZONE_DEFAULT));
+    saveCal(this.cal);
+  }
+
+  cycleStickMode() {
+    const i = STICK_MODES.indexOf(this.cal.stickMode);
+    this.cal.stickMode = STICK_MODES[(i + 1) % STICK_MODES.length];
+    saveCal(this.cal);
+    return this.cal.stickMode;
+  }
+
+  calibrateZero() {
+    this.cal.offsets = [...this.rawAxes];
+    saveCal(this.cal);
+  }
+
+  resetCalibration() {
+    this.cal = { deadzone: DEADZONE_DEFAULT, offsets: [0, 0, 0, 0], stickMode: 'AUTO' };
+    saveCal(this.cal);
   }
 
   dispatchRawPad(payload) {
@@ -100,7 +173,7 @@ class InputController {
     const isRepeat = this.keysDown.has(code);
     this.keysDown.add(code);
 
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace'].includes(code)) {
+    if (['Space', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Backspace'].includes(code)) {
       e.preventDefault();
     }
 
@@ -108,8 +181,13 @@ class InputController {
 
     const st = store.getState();
 
-    // Brickchord live keyboard mode when Brickchord performance overlay is active
-    if (st.detailOverlay?.type === 'brickchord') {
+    if (code === 'Tab') {
+      this.emitWheel({ type: 'TOGGLE' });
+      return;
+    }
+
+    // Brickchord / Lead live keyboard mode when performance overlay is active
+    if (st.detailOverlay?.type === 'brickchord' || st.detailOverlay?.type === 'lead') {
       if (code === 'Space') {
         engine.togglePlay();
         return;
@@ -264,7 +342,8 @@ class InputController {
       this.diagState.buttons.fill(false);
       this.diagState.buttons[BTN.L2] = this.keysDown.has('ShiftLeft') || this.keysDown.has('ShiftRight');
 
-      if (store.getState().detailOverlay?.type === 'brickchord') {
+      const ovType = store.getState().detailOverlay?.type;
+      if (ovType === 'brickchord' || ovType === 'lead') {
         const kbBtns = new Array(16).fill(false);
         kbBtns[BTN.LEFT] = this.keysDown.has('Digit1');
         kbBtns[BTN.UP] = this.keysDown.has('Digit2');
@@ -325,13 +404,14 @@ class InputController {
       store.toggleTheme();
     }
 
-    // Raw performance passthrough when Brickchord RG477V overlay is open
+    // Raw performance passthrough when Brickchord / Lead RG477V overlay is open
     const activeSt = store.getState();
-    if (activeSt.detailOverlay?.type === 'brickchord') {
+    const rawOverlayType = activeSt.detailOverlay?.type;
+    if (rawOverlayType === 'brickchord' || rawOverlayType === 'lead') {
       if (justPressed(BTN.START)) {
         engine.togglePlay();
       }
-      // Exit cleanly with SELECT + B so plain B stays usable as chord vii°!
+      // Exit cleanly with SELECT + B so plain B stays usable as a music pad!
       if (cur[BTN.SELECT] && justPressed(BTN.B)) {
         activeSt.detailOverlay = null;
         store.emit('overlay', null);
@@ -339,10 +419,16 @@ class InputController {
         return;
       }
 
-      const rawLx = applyDeadzone(pad.axes[0] || 0) || kbLx;
-      const rawLy = applyDeadzone(pad.axes[1] || 0) || kbLy;
-      const rawRx = applyDeadzone(pad.axes[2] || 0) || kbRx;
-      const rawRy = applyDeadzone(pad.axes[3] || 0) || kbRy;
+      this.rawAxes = [pad.axes[0] || 0, pad.axes[1] || 0, pad.axes[2] || 0, pad.axes[3] || 0];
+      const dz = this.cal.deadzone;
+      const useVirtual = this.cal.stickMode === 'VIRTUAL' || (this.cal.stickMode === 'AUTO' && pad.axes.length < 2);
+      const virtLx = useVirtual && l2 ? (cur[BTN.RIGHT] ? 1 : 0) - (cur[BTN.LEFT] ? 1 : 0) : 0;
+      const virtLy = useVirtual && l2 ? (cur[BTN.DOWN] ? 1 : 0) - (cur[BTN.UP] ? 1 : 0) : 0;
+
+      const rawLx = applyCalAxis(pad.axes[0], this.cal.offsets[0], dz) || virtLx || kbLx;
+      const rawLy = applyCalAxis(pad.axes[1], this.cal.offsets[1], dz) || virtLy || kbLy;
+      const rawRx = applyCalAxis(pad.axes[2], this.cal.offsets[2], dz) || kbRx;
+      const rawRy = applyCalAxis(pad.axes[3], this.cal.offsets[3], dz) || kbRy;
       this.diagState.axes = [rawLx, rawLy, rawRx, rawRy];
 
       this.dispatchRawPad({
@@ -351,6 +437,24 @@ class InputController {
         axes: [rawLx, rawLy, rawRx, rawRy],
         now
       });
+      for (let i = 0; i < 16; i++) this.prevButtons[i] = cur[i];
+      return;
+    }
+
+    // L3 Hold -> Radial Mode Wheel (tilt Left Stick, release L3 to jump)
+    if (justPressed(BTN.L3)) {
+      this.emitWheel({ type: 'OPEN' });
+    }
+    if (cur[BTN.L3]) {
+      const dz = this.cal.deadzone;
+      const lxWheel = applyCalAxis(pad.axes[0], this.cal.offsets[0], dz) || (cur[BTN.RIGHT] ? 1 : 0) - (cur[BTN.LEFT] ? 1 : 0) || kbLx;
+      const lyWheel = applyCalAxis(pad.axes[1], this.cal.offsets[1], dz) || (cur[BTN.DOWN] ? 1 : 0) - (cur[BTN.UP] ? 1 : 0) || kbLy;
+      this.emitWheel({ type: 'STICK', lx: lxWheel, ly: lyWheel });
+      for (let i = 0; i < 16; i++) this.prevButtons[i] = cur[i];
+      return;
+    }
+    if (justReleased(BTN.L3)) {
+      this.emitWheel({ type: 'CLOSE', commit: true });
       for (let i = 0; i < 16; i++) this.prevButtons[i] = cur[i];
       return;
     }
@@ -423,14 +527,34 @@ class InputController {
       }
     }
 
-    const lx = applyDeadzone(pad.axes[0] || 0) || kbLx;
-    const ly = applyDeadzone(pad.axes[1] || 0) || kbLy;
-    const rx = applyDeadzone(pad.axes[2] || 0) || kbRx;
-    const ry = applyDeadzone(pad.axes[3] || 0) || kbRy;
+    this.rawAxes = [pad.axes[0] || 0, pad.axes[1] || 0, pad.axes[2] || 0, pad.axes[3] || 0];
+    const dz = this.cal.deadzone;
+    const useVirtual = this.cal.stickMode === 'VIRTUAL' || (this.cal.stickMode === 'AUTO' && pad.axes.length < 2);
+    const virtLx = useVirtual && l2 ? (cur[BTN.RIGHT] ? 1 : 0) - (cur[BTN.LEFT] ? 1 : 0) : 0;
+    const virtLy = useVirtual && l2 ? (cur[BTN.DOWN] ? 1 : 0) - (cur[BTN.UP] ? 1 : 0) : 0;
+
+    const lx = applyCalAxis(pad.axes[0], this.cal.offsets[0], dz) || virtLx || kbLx;
+    const ly = applyCalAxis(pad.axes[1], this.cal.offsets[1], dz) || virtLy || kbLy;
+    const rx = applyCalAxis(pad.axes[2], this.cal.offsets[2], dz) || kbRx;
+    const ry = applyCalAxis(pad.axes[3], this.cal.offsets[3], dz) || kbRy;
     this.diagState.axes = [lx, ly, rx, ry];
 
-    if (lx !== 0 || ly !== 0 || rx !== 0 || ry !== 0) {
-      this.dispatch({ type: 'STICKS', lx, ly, rx, ry, fine: l2 });
+    // R2 + Right Stick => Momentary Master Punch-In Performance FX (R2 + R3 holds!)
+    if (r2) {
+      if (justPressed(BTN.R3)) {
+        engine.togglePunchHold();
+      }
+      if (rx !== 0 || ry !== 0 || this.r2PunchActive) {
+        engine.setPunchFx(rx, ry);
+        this.r2PunchActive = true;
+      }
+    } else if (this.r2PunchActive) {
+      engine.setPunchFx(0, 0);
+      this.r2PunchActive = false;
+    }
+
+    if (lx !== 0 || ly !== 0 || (!r2 && (rx !== 0 || ry !== 0))) {
+      this.dispatch({ type: 'STICKS', lx, ly, rx: r2 ? 0 : rx, ry: r2 ? 0 : ry, fine: l2 });
     }
 
     for (let i = 0; i < 16; i++) this.prevButtons[i] = cur[i];

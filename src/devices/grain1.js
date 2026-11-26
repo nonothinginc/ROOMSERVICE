@@ -1,3 +1,14 @@
+export const CLOUD_TEXTURES = [
+  { name: 'DUST', grainSize: 0.03, overlap: 0.025, spray: 12, pitch: 0, revProb: 5, cut: 11000, freeze: false },
+  { name: 'GRIT', grainSize: 0.035, overlap: 0.02, spray: 45, pitch: 0, revProb: 50, cut: 5800, freeze: false },
+  { name: 'SMEAR', grainSize: 0.14, overlap: 0.08, spray: 22, pitch: 0, revProb: 15, cut: 8500, freeze: false },
+  { name: 'SHIM', grainSize: 0.2, overlap: 0.11, spray: 35, pitch: 12, revProb: 20, cut: 12500, freeze: false },
+  { name: 'HAZE', grainSize: 0.3, overlap: 0.14, spray: 62, pitch: 0, revProb: 35, cut: 4200, freeze: false },
+  { name: 'DRIFT', grainSize: 0.34, overlap: 0.18, spray: 82, pitch: 7, revProb: 55, cut: 6800, freeze: false },
+  { name: 'BLOOM', grainSize: 0.28, overlap: 0.16, spray: 48, pitch: 5, revProb: 10, cut: 9800, freeze: false },
+  { name: 'FREEZE', grainSize: 0.24, overlap: 0.18, spray: 8, pitch: 0, revProb: 25, cut: 7200, freeze: true }
+];
+
 export const meta = {
   id: 'grain1',
   name: 'GRAIN-1',
@@ -10,6 +21,19 @@ export const meta = {
     { id: 'pitch', label: 'PTCH', min: -24, max: 24, default: 0, step: 0.5, unit: 'st' },
     { id: 'revProb', label: 'REV', min: 0, max: 100, default: 15, step: 1, unit: '%' },
     { id: 'position', label: 'POS', min: 0, max: 100, default: 32, step: 1, unit: '%' }
+  ],
+  extendedParams: [
+    {
+      id: 'texture',
+      label: 'CLOUD',
+      control: 'segmented',
+      options: CLOUD_TEXTURES.map((t) => t.name),
+      min: 0,
+      max: 7,
+      default: 2,
+      step: 1,
+      unit: ''
+    }
   ]
 };
 
@@ -63,7 +87,9 @@ export function createNode(Tone) {
     spray: 28,
     pitch: 0,
     revProb: 15,
-    position: 32
+    position: 32,
+    texture: 2,
+    freeze: false
   };
 
   let started = false;
@@ -96,7 +122,17 @@ export function createNode(Tone) {
     } else if (id === 'position') {
       const pos = Math.max(0, Math.min(0.95, value / 100)) * bufferDuration;
       player.loopStart = pos;
-      player.loopEnd = Math.min(bufferDuration, pos + Math.max(0.25, state.grainSize * 4));
+      player.loopEnd = Math.min(bufferDuration, pos + (state.freeze ? 0.16 : Math.max(0.25, state.grainSize * 4)));
+    } else if (id === 'texture') {
+      const tex = CLOUD_TEXTURES[Math.round(value)] || CLOUD_TEXTURES[2];
+      state.freeze = tex.freeze;
+      setParam('grainSize', tex.grainSize);
+      setParam('overlap', tex.overlap);
+      setParam('spray', tex.spray);
+      setParam('pitch', tex.pitch);
+      setParam('revProb', tex.revProb);
+      filter.frequency.setTargetAtTime(tex.cut, Tone.now(), 0.03);
+      setParam('position', state.position);
     }
   }
 

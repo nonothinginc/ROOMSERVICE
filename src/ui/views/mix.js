@@ -484,15 +484,16 @@ export function createMixView() {
       };
       el.appendChild(fxBtn);
     } else {
-      const limBtn = document.createElement('button');
-      limBtn.className = 'mix-fx-btn';
-      limBtn.textContent = 'LIM';
-      limBtn.onclick = (e) => {
+      const punchBtn = document.createElement('button');
+      punchBtn.className = 'mix-fx-btn';
+      punchBtn.textContent = 'PUNCH';
+      punchBtn.title = 'Master Right-Stick Punch-In FX [R2+R-Stick]';
+      punchBtn.onclick = (e) => {
         e.stopPropagation();
-        store.getState().detailOverlay = { type: 'mix', trackId: null };
+        store.getState().detailOverlay = { type: 'punch' };
         store.emit('overlay', store.getState().detailOverlay);
       };
-      el.appendChild(limBtn);
+      el.appendChild(punchBtn);
     }
 
     const ms = document.createElement('div');
@@ -966,6 +967,15 @@ export function createMixView() {
               store.emit('overlay', st.detailOverlay);
             };
             row.appendChild(padBtn);
+          } else if (['mono303', 'polyfm', 'grain1'].includes(slot.deviceId)) {
+            const leadBtn = document.createElement('button');
+            leadBtn.className = 'ctx-chip active';
+            leadBtn.textContent = 'LEAD';
+            leadBtn.onclick = () => {
+              st.detailOverlay = { type: 'lead', trackId: tid };
+              store.emit('overlay', st.detailOverlay);
+            };
+            row.appendChild(leadBtn);
           }
           const swapBtn = document.createElement('button');
           swapBtn.className = 'ctx-chip';
@@ -1095,6 +1105,165 @@ export function createMixView() {
     modalEl.append(hdr, body);
   }
 
+  let punchCanvas = null;
+
+  function drawPunchPad() {
+    if (!punchCanvas) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = punchCanvas.getBoundingClientRect();
+    const w = rect.width > 20 ? rect.width : punchCanvas.width;
+    const h = rect.height > 20 ? rect.height : punchCanvas.height;
+    const bw = Math.round(w * dpr);
+    const bh = Math.round(h * dpr);
+    if (punchCanvas.width !== bw || punchCanvas.height !== bh) {
+      punchCanvas.width = bw;
+      punchCanvas.height = bh;
+    }
+
+    const ctx = punchCanvas.getContext('2d');
+    const styles = getComputedStyle(document.documentElement);
+    const bg = styles.getPropertyValue('--bg').trim();
+    const border = styles.getPropertyValue('--border').trim();
+    const ink = styles.getPropertyValue('--ink').trim();
+    const inkDim = styles.getPropertyValue('--ink-dim').trim();
+    const accent = styles.getPropertyValue('--accent').trim();
+
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.strokeStyle = border;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(10.5, 10.5, w - 21, h - 21);
+    ctx.beginPath();
+    ctx.moveTo(w * 0.5, 10);
+    ctx.lineTo(w * 0.5, h - 10);
+    ctx.moveTo(10, h * 0.5);
+    ctx.lineTo(w - 10, h * 0.5);
+    ctx.stroke();
+
+    ctx.fillStyle = inkDim;
+    ctx.font = '700 11px "Geist Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DUB ECHO', w * 0.5, 24);
+    ctx.fillText('TAPE CRUSH', w * 0.5, h - 16);
+    ctx.textAlign = 'left';
+    ctx.fillText('LPF', 20, h * 0.5 - 6);
+    ctx.textAlign = 'right';
+    ctx.fillText('HPF', w - 20, h * 0.5 - 6);
+
+    const ps = engine.getPunchState();
+    const px = 10 + ((ps.x + 1) * 0.5) * (w - 20);
+    const py = 10 + ((ps.y + 1) * 0.5) * (h - 20);
+
+    ctx.strokeStyle = ps.active || ps.hold ? accent : inkDim;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(px, 10);
+    ctx.lineTo(px, h - 10);
+    ctx.moveTo(10, py);
+    ctx.lineTo(w - 10, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = ps.active || ps.hold ? accent : ink;
+    ctx.beginPath();
+    ctx.arc(px, py, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = ps.active ? accent : ink;
+    ctx.font = '700 12px "Geist Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(ps.label, 20, 24);
+    if (ps.hold) {
+      ctx.fillStyle = accent;
+      ctx.textAlign = 'right';
+      ctx.fillText('HOLD', w - 20, 24);
+    }
+    ctx.restore();
+  }
+
+  function tickOverlay() {
+    if (store.getState().detailOverlay?.type === 'punch' && punchCanvas) {
+      drawPunchPad();
+    } else {
+      punchCanvas = null;
+    }
+  }
+
+  function renderPunchFxOverlay(panelEl) {
+    const st = store.getState();
+    const hdr = document.createElement('div');
+    hdr.className = 'overlay-hdr';
+    hdr.innerHTML = `<span>MASTER // PUNCH-IN FX [R2+R-STICK]</span>`;
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '6px';
+
+    const holdBtn = document.createElement('button');
+    holdBtn.className = `ctx-chip ${engine.getPunchState().hold ? 'active' : ''}`;
+    holdBtn.textContent = 'HOLD [R3]';
+    holdBtn.onclick = () => {
+      const h = engine.togglePunchHold();
+      holdBtn.classList.toggle('active', h);
+    };
+
+    const limBtn = document.createElement('button');
+    limBtn.className = 'ctx-chip';
+    limBtn.textContent = 'LIMITER';
+    limBtn.onclick = () => {
+      st.detailOverlay = { type: 'mix', trackId: null };
+      store.emit('overlay', st.detailOverlay);
+    };
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ctx-chip';
+    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.onclick = () => {
+      if (!engine.getPunchState().hold) engine.setPunchFx(0, 0);
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    };
+
+    actions.append(holdBtn, limBtn, closeBtn);
+    hdr.appendChild(actions);
+
+    const body = document.createElement('div');
+    body.className = 'overlay-body';
+
+    punchCanvas = document.createElement('canvas');
+    punchCanvas.className = 'punch-xy-canvas';
+    punchCanvas.width = 640;
+    punchCanvas.height = 320;
+
+    const updateFromPtr = (e) => {
+      const r = punchCanvas.getBoundingClientRect();
+      const x = Math.max(-1, Math.min(1, ((e.clientX - r.left) / Math.max(1, r.width)) * 2 - 1));
+      const y = Math.max(-1, Math.min(1, ((e.clientY - r.top) / Math.max(1, r.height)) * 2 - 1));
+      engine.setPunchFx(x, y, engine.getPunchState().hold ? true : null);
+    };
+    punchCanvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      engine.unlock();
+      punchCanvas.setPointerCapture(e.pointerId);
+      updateFromPtr(e);
+    });
+    punchCanvas.addEventListener('pointermove', (e) => {
+      if (e.buttons) updateFromPtr(e);
+    });
+    const endPtr = () => {
+      if (!engine.getPunchState().hold) engine.setPunchFx(0, 0);
+    };
+    punchCanvas.addEventListener('pointerup', endPtr);
+    punchCanvas.addEventListener('pointercancel', endPtr);
+
+    body.appendChild(punchCanvas);
+    panelEl.append(hdr, body);
+    drawPunchPad();
+  }
+
   function renderDetailOverlay(panelEl) {
     const st = store.getState();
     const hdr = document.createElement('div');
@@ -1134,8 +1303,10 @@ export function createMixView() {
   return {
     el: root,
     tick,
+    tickOverlay,
     handleAction,
     renderDetailOverlay,
+    renderPunchFxOverlay,
     renderTrackRenameModal,
     renderChannelFxModal,
     renderReturnFxModal

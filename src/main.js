@@ -7,10 +7,12 @@ import { createDotMatrixDisplay } from './ui/dot-matrix.js';
 import { createHeader, createLeftRail, createRightRail, renderHistoryOverlay, renderProjectModal } from './ui/header.js';
 import { renderInstMenuModal } from './ui/inst-menu.js';
 import { renderLabOverlay } from './ui/lab.js';
+import { createModeWheel } from './ui/mode-wheel.js';
 import { renderTriageModal } from './ui/triage.js';
 import { createArrView } from './ui/views/arr.js';
 import { handleBrickchordRawPad, renderBrickchordOverlay, tickBrickchordOverlay } from './ui/views/brickchord-pad.js';
 import { createDspView } from './ui/views/dsp.js';
+import { handleLeadRawPad, renderLeadOverlay, tickLeadOverlay } from './ui/views/lead-pad.js';
 import { createMixView } from './ui/views/mix.js';
 import { renderMpcEditor, tickMpcOverlay } from './ui/views/mpc-editor.js';
 import { createRollView } from './ui/views/roll.js';
@@ -50,8 +52,10 @@ function boot() {
   overlayRoot.className = 'overlay-backdrop';
   overlayRoot.style.display = 'none';
 
+  const modeWheel = createModeWheel();
+
   centerCol.append(header.el, stage);
-  chassis.append(leftRail.el, centerCol, rightRail.el, overlayRoot);
+  chassis.append(leftRail.el, centerCol, rightRail.el, overlayRoot, modeWheel.el);
   appRoot.appendChild(chassis);
 
   const mobileMq = window.matchMedia('(max-width: 560px)');
@@ -173,6 +177,8 @@ function boot() {
         views.ARR.renderDetailOverlay(panel);
       } else if (st.detailOverlay.type === 'mix') {
         views.MIX.renderDetailOverlay(panel);
+      } else if (st.detailOverlay.type === 'punch') {
+        views.MIX.renderPunchFxOverlay(panel);
       } else if (st.detailOverlay.type === 'dsp') {
         views.DSP.renderDetailOverlay(panel);
       } else if (st.detailOverlay.type === 'mpc') {
@@ -180,6 +186,9 @@ function boot() {
       } else if (st.detailOverlay.type === 'brickchord') {
         panel.classList.add('bc-panel');
         renderBrickchordOverlay(panel, st.detailOverlay.trackId);
+      } else if (st.detailOverlay.type === 'lead') {
+        panel.classList.add('bc-panel');
+        renderLeadOverlay(panel, st.detailOverlay.trackId);
       }
       overlayRoot.appendChild(panel);
       return;
@@ -236,7 +245,16 @@ function boot() {
   });
 
   input.onRawPad((pad) => {
-    handleBrickchordRawPad(pad);
+    const t = store.getState().detailOverlay?.type;
+    if (t === 'brickchord') handleBrickchordRawPad(pad);
+    else if (t === 'lead') handleLeadRawPad(pad);
+  });
+
+  input.onWheel((ev) => {
+    if (ev.type === 'OPEN') modeWheel.open();
+    else if (ev.type === 'CLOSE') modeWheel.close(ev.commit);
+    else if (ev.type === 'STICK') modeWheel.updateStick(ev.lx, ev.ly);
+    else if (ev.type === 'TOGGLE') modeWheel.toggle();
   });
 
   mountActiveView();
@@ -256,9 +274,12 @@ function boot() {
     engine.tickFps(now);
     dotMatrix.tick();
     rightRail.tick();
+    modeWheel.tick();
     tickMpcOverlay();
     tickBrickchordOverlay();
+    tickLeadOverlay();
     views.DSP.tickOverlay?.();
+    views.MIX.tickOverlay?.();
     const activeView = views[store.getState().view];
     activeView?.tick?.();
     requestAnimationFrame(frame);

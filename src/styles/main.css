@@ -1598,13 +1598,14 @@ body {
   }
 }
 
-.hdr-home-btn {
-  display: none;
-}
-
-@media (max-width: 760px) {
-  .hdr-home-btn {
-    display: inline-flex;
+@media (max-width: 520px) {
+  .mix-master-dock {
+    flex: 0 0 104px;
+    min-width: 104px;
+  }
+  .mix-strip {
+    flex: 1 0 92px;
+    min-width: 92px;
   }
 }
 
@@ -1967,5 +1968,129 @@ body {
   .bc-mod-pill {
     flex: 1;
     min-width: 74px;
+  }
+}
+
+/* Mode Wheel, Calibration, Punch XY & Compact Landscape Dimensions */
+.mode-wheel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 12, 0.72);
+  backdrop-filter: blur(4px);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+[data-theme="light"] .mode-wheel-backdrop {
+  background: rgba(235, 235, 232, 0.78);
+}
+
+.mode-wheel-canvas {
+  width: min(360px, 78vmin);
+  height: min(360px, 78vmin);
+  display: block;
+  touch-action: none;
+}
+
+.dm-overlay-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 310px) 1fr;
+  gap: 14px;
+  align-items: center;
+}
+
+.dm-overlay-canvas {
+  width: min(300px, 44dvh);
+  height: min(300px, 44dvh);
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  justify-self: center;
+}
+
+.cal-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.punch-xy-canvas {
+  width: 100%;
+  height: clamp(190px, 52dvh, 360px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  touch-action: none;
+  display: block;
+}
+
+.clk-btn {
+  min-width: 44px;
+  font-size: 9.5px;
+  border-color: var(--border);
+}
+
+@media (max-width: 760px) {
+  .dm-overlay-grid {
+    grid-template-columns: 1fr;
+  }
+  .overlay-backdrop {
+    padding: 8px;
+  }
+}
+
+@media (max-height: 520px) {
+  .overlay-backdrop {
+    padding: 6px;
+  }
+  .overlay-hdr {
+    height: 34px;
+    min-height: 34px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .overlay-body {
+    padding: 8px;
+    gap: 8px;
+  }
+  .hw-header {
+    height: 38px;
+    min-height: 38px;
+  }
+  .ctx-strip {
+    height: 32px;
+    min-height: 32px;
+  }
+  .dsp-chain-scroll {
+    padding: 8px;
+    gap: 8px;
+  }
+  .dsp-card {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+  .bc-seg-strip {
+    padding: 4px 8px;
+    gap: 6px;
+  }
+  .bc-stage {
+    padding: 4px 8px;
+    min-height: 82px;
+  }
+  .bc-hud-canvas {
+    height: clamp(82px, 21dvh, 138px);
+  }
+  .bc-deck {
+    padding: 4px 8px 8px;
+    gap: 6px;
+  }
+  .bc-pad {
+    min-height: 34px;
+    padding: 4px 6px;
+  }
+  .bc-mod-pill {
+    padding: 4px 6px;
+    font-size: 9px;
   }
 }

@@ -362,7 +362,17 @@ export function createLeftRail() {
     st.detailOverlay = { type: 'project' };
     store.emit('overlay', st.detailOverlay);
   };
-  botGroup.appendChild(projBtn);
+
+  const wheelBtn = document.createElement('button');
+  wheelBtn.className = 'rail-btn';
+  wheelBtn.title = 'MODE WHEEL [L3 / TAB]';
+  wheelBtn.innerHTML = `<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="5.5" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="1" fill="currentColor" stroke="none"/></svg>`;
+  wheelBtn.onclick = () => {
+    engine.unlock();
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab' }));
+  };
+
+  botGroup.append(wheelBtn, projBtn);
 
   rail.append(topGroup, botGroup);
 
@@ -516,7 +526,24 @@ export function createHeader() {
   bpmBox.innerHTML = `<span class="lbl">BPM</span><span class="val">132</span>`;
   attachVerticalDrag(bpmBox, 'BPM', () => store.getState().bpm, (v) => engine.setBpm(v));
 
-  center.append(stopBtn, playBtn, recBtn, bpmBox);
+  const clkBtn = document.createElement('button');
+  clkBtn.className = 'hdr-btn clk-btn';
+  clkBtn.title = 'Metronome (Tap: OFF/REC/ON · Hold: 1-Bar Count-In)';
+  clkBtn.onclick = () => {
+    engine.unlock();
+    const st = store.getState();
+    const order = ['off', 'rec', 'on'];
+    const next = order[(order.indexOf(st.metronome || 'rec') + 1) % order.length];
+    st.metronome = next;
+    store.emit('transport', { metronome: next });
+  };
+  attachLongPress(clkBtn, () => {
+    const st = store.getState();
+    st.countIn = !st.countIn;
+    store.emit('transport', { countIn: st.countIn });
+  });
+
+  center.append(stopBtn, playBtn, recBtn, bpmBox, clkBtn);
 
   // Right
   const right = document.createElement('div');
@@ -557,6 +584,14 @@ export function createHeader() {
     modeBtn.classList.toggle('active', st.playMode === 'SONG');
     bpmBox.querySelector('.val').textContent = String(st.bpm);
     patBadge.textContent = st.activePatternId;
+    if (st.countInBeat > 0) {
+      clkBtn.textContent = `C-${st.countInBeat}`;
+      clkBtn.classList.add('active');
+    } else {
+      const tag = st.metronome === 'on' ? 'CLK' : st.metronome === 'rec' ? 'CLK·R' : 'CLK×';
+      clkBtn.textContent = st.countIn ? `${tag}+` : tag;
+      clkBtn.classList.toggle('active', st.metronome === 'on' || st.countIn);
+    }
   }
 
   store.subscribe(sync);
