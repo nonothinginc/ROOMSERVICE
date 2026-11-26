@@ -91,6 +91,7 @@ const initialState = {
   activePatternId: 'P01',
   ghostPatternId: null,
   gridSnap: 1,
+  gridSnapAuto: true,
   scaleRoot: 6, // F#
   scaleId: 'MIN',
   scaleLock: false,
@@ -607,6 +608,28 @@ export const store = {
     track.inserts.splice(slotIdx, 1);
     if (initialState.selectedDeviceSlotIdx >= track.inserts.length) {
       initialState.selectedDeviceSlotIdx = track.inserts.length - 1;
+    }
+    this.emit('dsp-chain', { trackId });
+  },
+
+  moveInsertDevice(trackId, fromIdx, toIdx) {
+    const track = initialState.tracks[trackId];
+    if (
+      !track ||
+      fromIdx <= 0 ||
+      toIdx <= 0 ||
+      fromIdx >= track.inserts.length ||
+      toIdx >= track.inserts.length ||
+      fromIdx === toIdx
+    ) {
+      return;
+    }
+    const def = getDevice(track.inserts[fromIdx].deviceId);
+    this.pushHistory(`MOVE ${def?.meta.name || 'FX'}`);
+    const [item] = track.inserts.splice(fromIdx, 1);
+    track.inserts.splice(toIdx, 0, item);
+    if (initialState.selectedDeviceSlotIdx === fromIdx) {
+      initialState.selectedDeviceSlotIdx = toIdx;
     }
     this.emit('dsp-chain', { trackId });
   },

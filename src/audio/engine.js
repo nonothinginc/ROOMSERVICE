@@ -644,7 +644,7 @@ class AudioEngine {
 
   setMasterVolume(vol) {
     const st = store.getState();
-    st.master.volume = Math.max(0, Math.min(1.25, vol));
+    st.master.volume = Math.max(0, Math.min(1.42, vol));
     this.masterGain?.gain.setTargetAtTime(st.master.volume, Tone.now(), 0.015);
   }
 
@@ -715,6 +715,36 @@ class AudioEngine {
         inst.triggerNote?.(midi, 0.18, t, vel, {});
       }
       this.lastActiveMidiByTrack[trackId] = midi;
+
+      // Live overdub recording when Transport is playing + Armed
+      const st = store.getState();
+      if (st.isPlaying && st.isRecording) {
+        const pat = st.patterns[st.activePatternId];
+        if (pat) {
+          const patLen = pat.length || 16;
+          const snap = st.gridSnapAuto ? 1 : Math.max(0.25, st.gridSnap || 1);
+          const rawStep = st.currentStep % patLen;
+          const qStep = (Math.round(rawStep / snap) * snap) % patLen;
+          const curNotes = store.getActiveNotes(trackId, st.activePatternId);
+          const dup = curNotes.some((n) => Math.abs(n.step - qStep) < 0.05 && n.midi === midi);
+          if (!dup) {
+            const nextNotes = [
+              ...curNotes,
+              {
+                id: nextId('n'),
+                step: qStep,
+                len: snap,
+                midi,
+                vel: Math.max(25, Math.min(127, Math.round(vel * 127))),
+                prob: 100,
+                slide: Boolean(slide),
+                cutoff: 0
+              }
+            ];
+            store.setActiveNotes(nextNotes, trackId, st.activePatternId, 'REC NOTE');
+          }
+        }
+      }
     };
     if (store.getState().audioUnlocked) {
       fire();
@@ -788,18 +818,20 @@ class AudioEngine {
     if (!notes || notes.length === 0) return;
 
     for (const note of notes) {
-      if (Math.round(note.step) !== localStep) continue;
+      if (note.step < localStep - 0.001 || note.step >= localStep + 0.999) continue;
       const prob = note.prob ?? 100;
       if (prob < 100 && Math.random() * 100 > prob) continue;
 
+      const frac = Math.max(0, note.step - localStep);
+      const noteTime = time + frac * stepDur;
       const durSec = Math.max(0.04, (note.len || 1) * stepDur * 0.92);
       const vel = Math.max(0.05, Math.min(1, (note.vel || 100) / 127));
       const opts = { cutoffOffset: note.cutoff || 0 };
 
       if (note.slide && typeof inst.triggerSlide === 'function') {
-        inst.triggerSlide(this.lastActiveMidiByTrack[trackId], note.midi, durSec, time, vel, opts);
+        inst.triggerSlide(this.lastActiveMidiByTrack[trackId], note.midi, durSec, noteTime, vel, opts);
       } else if (typeof inst.triggerNote === 'function') {
-        inst.triggerNote(note.midi, durSec, time, vel, opts);
+        inst.triggerNote(note.midi, durSec, noteTime, vel, opts);
       }
       this.lastActiveMidiByTrack[trackId] = note.midi;
     }

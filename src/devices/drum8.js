@@ -4,8 +4,11 @@ import {
   computePeaks,
   ensureFactoryDrumKits,
   getReversedBuffer,
-  getSamplePool
+  getSampleById,
+  getSamplePool,
+  onDrumKitsUpdated
 } from '../audio/drum-kits.js';
+import { triggerVA808, triggerVA909 } from '../audio/analog-drums.js';
 import { analyzeAudioBuffer } from '../audio/bpm-detector.js';
 
 export const meta = {
@@ -15,7 +18,7 @@ export const meta = {
   visualizer: 'meter',
   params: [
     { id: 'mode', label: 'MODE', control: 'segmented', options: ['SYNTH', 'RACK'], min: 0, max: 1, default: 0, step: 1, unit: '' },
-    { id: 'kit', label: 'KIT', control: 'segmented', options: ['909', '808', 'RAND', 'COMBO'], showWhen: { param: 'mode', equals: 1 }, min: 0, max: 3, default: 0, step: 1, unit: '' },
+    { id: 'kit', label: 'KIT', control: 'segmented', options: ['909', '808', 'RAND', 'COMBO'], min: 0, max: 3, default: 0, step: 1, unit: '' },
     { id: 'tune', label: 'TUNE', min: -12, max: 12, default: 0, step: 0.5, unit: 'st' },
     { id: 'decay', label: 'DEC', min: 0.2, max: 2.0, default: 1.0, step: 0.05, unit: 'x' },
     { id: 'tone', label: 'TONE', min: 400, max: 14000, default: 9500, step: 50, unit: 'Hz', curve: 'exp' },
@@ -32,8 +35,9 @@ export const meta = {
 };
 
 export const DRUM_VOICE_NAMES = ['KICK', 'SNARE', 'CLAP', 'CH', 'OH', 'RIM', 'TOM', 'PERC'];
-
 const DEFAULT_VOICE_PANS = [0, 0, 0, -0.22, 0.24, 0.32, -0.26, 0.36];
+// Classic 808+909 COMBO circuit map (0 = 909, 1 = 808): 808 Kick/CH/OH/Cowbell + 909 Snare/Clap/Rim/Tom
+const COMBO_SYNTH_MAP = [1, 0, 0, 1, 1, 0, 0, 1];
 
 const driveCurveCache = new Map();
 function getPadDriveCurve(drivePct) {
@@ -77,74 +81,19 @@ export function createNode(Tone) {
   compMakeup.connect(output);
   output.connect(meter);
 
-  // Per-voice stereo & filter strip for Mode 0 (SYNTH)
+  // Per-voice stereo, filter & drive strip for Mode 0 (Virtual Analog 808/909 SYNTH)
   const synthStrips = Array.from({ length: 8 }, (_, idx) => {
+    const rawIn = rawCtx.createGain();
     const filter = new Tone.Filter({ type: 'lowpass', frequency: 18000, Q: 0.7 });
+    const shaperNode = rawCtx.createWaveShaper();
     const gain = new Tone.Gain(1);
     const panner = new Tone.Panner(DEFAULT_VOICE_PANS[idx] * 0.6);
+    Tone.connect(rawIn, filter);
     filter.connect(gain);
     gain.connect(panner);
     panner.connect(bus);
-    return { filter, gain, panner };
+    return { rawIn, filter, shaperNode, gain, panner, driveActive: false };
   });
-
-  // Mode 0: Synthesized 8-voice engine
-  const kick = new Tone.MembraneSynth({
-    pitchDecay: 0.045,
-    octaves: 6,
-    oscillator: { type: 'sine' },
-    envelope: { attack: 0.001, decay: 0.32, sustain: 0.01, release: 0.12 }
-  }).connect(synthStrips[0].filter);
-
-  const snareBody = new Tone.MembraneSynth({
-    pitchDecay: 0.02,
-    octaves: 2.5,
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.001, decay: 0.12, sustain: 0, release: 0.06 }
-  }).connect(synthStrips[1].filter);
-
-  const snareNoiseFilter = new Tone.Filter({ type: 'highpass', frequency: 1400 }).connect(synthStrips[1].filter);
-  const snareNoise = new Tone.NoiseSynth({
-    noise: { type: 'white' },
-    envelope: { attack: 0.001, decay: 0.17, sustain: 0, release: 0.05 }
-  }).connect(snareNoiseFilter);
-
-  const clapFilter = new Tone.Filter({ type: 'bandpass', frequency: 1800, Q: 1.4 }).connect(synthStrips[2].filter);
-  const clap = new Tone.NoiseSynth({
-    noise: { type: 'pink' },
-    envelope: { attack: 0.002, decay: 0.22, sustain: 0, release: 0.08 }
-  }).connect(clapFilter);
-
-  const hatFilter = new Tone.Filter({ type: 'highpass', frequency: 6500 });
-  hatFilter.connect(synthStrips[3].filter);
-  const closedHat = new Tone.NoiseSynth({
-    noise: { type: 'white' },
-    envelope: { attack: 0.001, decay: 0.045, sustain: 0, release: 0.02 }
-  }).connect(hatFilter);
-
-  const openHatFilter = new Tone.Filter({ type: 'highpass', frequency: 6200 }).connect(synthStrips[4].filter);
-  const openHat = new Tone.NoiseSynth({
-    noise: { type: 'white' },
-    envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.08 }
-  }).connect(openHatFilter);
-
-  const rim = new Tone.Synth({
-    oscillator: { type: 'triangle' },
-    envelope: { attack: 0.001, decay: 0.045, sustain: 0, release: 0.02 }
-  }).connect(synthStrips[5].filter);
-
-  const tom = new Tone.MembraneSynth({
-    pitchDecay: 0.035,
-    octaves: 3.5,
-    envelope: { attack: 0.002, decay: 0.22, sustain: 0, release: 0.08 }
-  }).connect(synthStrips[6].filter);
-
-  const perc = new Tone.FMSynth({
-    harmonicity: 2.7,
-    modulationIndex: 7,
-    envelope: { attack: 0.001, decay: 0.11, sustain: 0, release: 0.04 },
-    modulationEnvelope: { attack: 0.001, decay: 0.08, sustain: 0, release: 0.02 }
-  }).connect(synthStrips[7].filter);
 
   // Mode 1: 16-Pad Sample Rack + Per-Pad Modulation
   const pads = Array.from({ length: 16 }, (_, index) => ({
@@ -176,6 +125,7 @@ export function createNode(Tone) {
   const padFlashAt = new Array(16).fill(0);
   const lastVoiceTime = new Array(16).fill(-1);
   const activeChokePlayers = new Map();
+  let synthVoiceCircuit = new Array(8).fill(0); // 0 = VA-909, 1 = VA-808
   let lastTriggerLevel = 0;
 
   const state = {
@@ -192,6 +142,14 @@ export function createNode(Tone) {
     comp: 25,
     width: 60
   };
+
+  function refreshSynthCircuitMap(kitIdx) {
+    const k = Math.max(0, Math.min(3, Math.round(kitIdx)));
+    if (k === 0) synthVoiceCircuit = new Array(8).fill(0);
+    else if (k === 1) synthVoiceCircuit = new Array(8).fill(1);
+    else if (k === 3) synthVoiceCircuit = [...COMBO_SYNTH_MAP];
+    else synthVoiceCircuit = Array.from({ length: 8 }, () => (Math.random() < 0.5 ? 0 : 1));
+  }
 
   function syncSynthStrip(idx) {
     const strip = synthStrips[idx];
@@ -217,6 +175,7 @@ export function createNode(Tone) {
 
   function applyKit(kitIdx) {
     ensureFactoryDrumKits(Tone.getContext().rawContext);
+    refreshSynthCircuitMap(kitIdx);
     const kitName = KIT_NAMES[Math.max(0, Math.min(KIT_NAMES.length - 1, Math.round(kitIdx)))];
     const assigned = buildKitAssignment(kitName);
     for (let i = 0; i < 8; i++) {
@@ -237,6 +196,20 @@ export function createNode(Tone) {
   }
 
   applyKit(0);
+
+  // When authentic WAV samples finish decoding asynchronously, refresh matching pads seamlessly
+  const unsubKits = onDrumKitsUpdated(() => {
+    for (let i = 0; i < 16; i++) {
+      const p = pads[i];
+      if (!p.sampleId) continue;
+      const fresh = getSampleById(p.sampleId);
+      if (fresh && fresh.buffer && fresh.buffer !== p.buffer) {
+        p.buffer = fresh.buffer;
+        p.peaks = fresh.peaks;
+        p.duration = fresh.duration;
+      }
+    }
+  });
 
   function rerollKit() {
     applyKit(state.kit);
@@ -368,10 +341,6 @@ export function createNode(Tone) {
     return t;
   }
 
-  function tuneFreq(hz, padTune = 0) {
-    return hz * Math.pow(2, (state.tune + padTune) / 12);
-  }
-
   function setParam(id, value) {
     if (!(id in state)) return;
     const prev = state[id];
@@ -388,12 +357,6 @@ export function createNode(Tone) {
     } else if (id === 'drive') {
       shaper.wet.setTargetAtTime(Math.max(0, Math.min(1, value / 100)), now, 0.015);
       shaper.distortion = 0.05 + (value / 100) * 0.75;
-    } else if (id === 'decay') {
-      kick.envelope.decay = 0.32 * value;
-      snareNoise.envelope.decay = 0.17 * value;
-      closedHat.envelope.decay = Math.max(0.02, 0.045 * value);
-      openHat.envelope.decay = 0.28 * value;
-      tom.envelope.decay = 0.22 * value;
     } else if (id === 'hpf') {
       busHpf.frequency.setTargetAtTime(Math.max(20, Math.min(2000, value)), now, 0.015);
     } else if (id === 'sub') {
@@ -529,13 +492,18 @@ export function createNode(Tone) {
       return;
     }
 
+    // Mode 0: Virtual Analog 808 / 909 Circuit Synthesis
     const idx = ((rawIdx % 8) + 8) % 8;
     padFlashAt[idx] = performance.now();
     const t = voiceTime(idx, time);
     const pad = pads[idx];
-    const pDecay = Math.max(0.1, Math.min(2.0, state.decay * (pad.decay ?? 1.0)));
-    const pTune = pad.tune || 0;
     const strip = synthStrips[idx];
+    const raw = Tone.getContext().rawContext;
+
+    const totalTune = state.tune + (pad.tune || 0);
+    const totalDecay = Math.max(0.15, Math.min(2.4, state.decay * (pad.decay ?? 1.0)));
+    const opts = { tune: totalTune, decay: totalDecay, pitchEnv: pad.pitchEnv || 0 };
+
     if (strip && (pad.attack || 0) > 1) {
       const atk = pad.attack / 1000;
       const g = Math.max(0.05, Math.min(1.6, pad.gain ?? 1));
@@ -543,33 +511,11 @@ export function createNode(Tone) {
       strip.gain.gain.linearRampToValueAtTime(g, t + atk);
     }
 
-    switch (idx) {
-      case 0:
-        kick.pitchDecay = 0.045 + Math.max(0, (pad.pitchEnv || 0) / 24) * 0.06;
-        kick.triggerAttackRelease(tuneFreq(50, pTune), Math.max(0.06, 0.25 * pDecay), t, v);
-        break;
-      case 1:
-        snareBody.triggerAttackRelease(tuneFreq(185, pTune), Math.max(0.04, 0.1 * pDecay), t, v * 0.7);
-        snareNoise.triggerAttackRelease(Math.max(0.04, 0.15 * pDecay), t, v * 0.75);
-        break;
-      case 2:
-        clap.triggerAttackRelease(Math.max(0.05, 0.18 * pDecay), t, v * 0.9);
-        break;
-      case 3:
-        closedHat.triggerAttackRelease(Math.max(0.02, 0.04 * pDecay), t, v * 0.75);
-        break;
-      case 4:
-        openHat.triggerAttackRelease(Math.max(0.06, 0.26 * pDecay), t, v * 0.75);
-        break;
-      case 5:
-        rim.triggerAttackRelease(tuneFreq(780, pTune), Math.max(0.02, 0.04 * pDecay), t, v * 0.7);
-        break;
-      case 6:
-        tom.triggerAttackRelease(tuneFreq(115, pTune), Math.max(0.06, 0.2 * pDecay), t, v * 0.85);
-        break;
-      case 7:
-        perc.triggerAttackRelease(tuneFreq(340, pTune), Math.max(0.03, 0.1 * pDecay), t, v * 0.8);
-        break;
+    const use808 = synthVoiceCircuit[idx] === 1;
+    if (use808) {
+      triggerVA808(raw, strip.rawIn, idx, t, v, opts);
+    } else {
+      triggerVA909(raw, strip.rawIn, idx, t, v, opts);
     }
   }
 
@@ -580,7 +526,7 @@ export function createNode(Tone) {
       return DRUM_VOICE_NAMES.map((name, index) => ({
         index,
         midi: 48 + index,
-        label: `${String(index + 1).padStart(2, '0')} ${name}`
+        label: `${String(index + 1).padStart(2, '0')} ${synthVoiceCircuit[index] === 1 ? '808' : '909'} ${name}`
       }));
     }
     const active = pads
@@ -599,6 +545,7 @@ export function createNode(Tone) {
     return {
       mode: Math.round(state.mode),
       kit: Math.round(state.kit),
+      synthVoiceCircuit,
       pads,
       padFlashAt,
       poolCount: getSamplePool().length
@@ -621,6 +568,7 @@ export function createNode(Tone) {
   }
 
   function dispose() {
+    unsubKits();
     for (const pl of activeChokePlayers.values()) {
       try {
         pl.dispose();
@@ -629,20 +577,12 @@ export function createNode(Tone) {
       }
     }
     activeChokePlayers.clear();
-    kick.dispose();
-    snareBody.dispose();
-    snareNoise.dispose();
-    snareNoiseFilter.dispose();
-    clap.dispose();
-    clapFilter.dispose();
-    closedHat.dispose();
-    openHat.dispose();
-    hatFilter.dispose();
-    openHatFilter.dispose();
-    rim.dispose();
-    tom.dispose();
-    perc.dispose();
     for (const s of synthStrips) {
+      try {
+        s.rawIn.disconnect();
+      } catch {
+        // ignore
+      }
       s.filter.dispose();
       s.gain.dispose();
       s.panner.dispose();

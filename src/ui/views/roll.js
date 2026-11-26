@@ -14,12 +14,25 @@ import { nextId, store } from '../../state/store.js';
 import { attachLongPress } from '../components/longpress.js';
 
 const SNAP_OPTIONS = [
+  { label: 'AUTO', val: 'AUTO' },
+  { label: '1/64', val: 0.25 },
   { label: '1/32', val: 0.5 },
   { label: '1/16', val: 1 },
   { label: '1/8', val: 2 },
-  { label: '1/4', val: 4 }
+  { label: '1/4', val: 4 },
+  { label: 'FREE', val: 0.125 }
 ];
+
+const PAT_LENGTHS = [
+  { steps: 4, label: '1B' },
+  { steps: 8, label: '2B' },
+  { steps: 16, label: '4B' },
+  { steps: 32, label: '8B' },
+  { steps: 64, label: '16B' }
+];
+
 const LANES = ['VEL', 'PROB', 'SLIDE', 'CUT'];
+const RULER_H = 18;
 
 export function createRollView() {
   const root = document.createElement('div');
@@ -47,14 +60,6 @@ export function createRollView() {
     store.emit('roll-ctx');
   };
 
-  const laneChip = document.createElement('button');
-  laneChip.className = 'ctx-chip';
-  laneChip.onclick = () => {
-    const st = store.getState();
-    st.rollLaneOpen = !st.rollLaneOpen;
-    store.emit('roll-lane', st.rollLane);
-  };
-
   const mpcChip = document.createElement('button');
   mpcChip.className = 'ctx-chip active';
   mpcChip.textContent = 'MPC';
@@ -62,6 +67,53 @@ export function createRollView() {
     const st = store.getState();
     st.detailOverlay = { type: 'mpc', trackId: st.selectedTrackId };
     store.emit('overlay', st.detailOverlay);
+  };
+
+  const lenChip = document.createElement('button');
+  lenChip.className = 'ctx-chip';
+  lenChip.title = 'Pattern Length (Beats / Steps)';
+  lenChip.onclick = () => {
+    const st = store.getState();
+    const pat = st.patterns[st.activePatternId];
+    if (!pat) return;
+    const cycle = [16, 32, 64, 4, 8];
+    const idx = cycle.indexOf(pat.length);
+    const nextLen = cycle[(idx + 1) % cycle.length];
+    store.pushHistory(`PAT LEN ${nextLen}`);
+    pat.length = nextLen;
+    if (zoomStepW != null && gridWrap.clientWidth > 0) {
+      const kw = getKeyWidth();
+      zoomStepW = Math.max(16, Math.min(148, (gridWrap.clientWidth - kw) / Math.min(nextLen, 16)));
+      stepW = zoomStepW;
+      scrollX = 0;
+    }
+    store.emit('notes');
+    store.emit('roll-ctx');
+  };
+
+  const snapChip = document.createElement('button');
+  snapChip.className = 'ctx-chip';
+  snapChip.title = 'Grid Snap (AUTO adapts to pinch zoom)';
+  snapChip.onclick = () => {
+    const st = store.getState();
+    const curKey = st.gridSnapAuto ? 'AUTO' : st.gridSnap;
+    const idx = SNAP_OPTIONS.findIndex((o) => o.val === curKey);
+    const next = SNAP_OPTIONS[(idx + 1) % SNAP_OPTIONS.length];
+    if (next.val === 'AUTO') {
+      st.gridSnapAuto = true;
+    } else {
+      st.gridSnapAuto = false;
+      st.gridSnap = next.val;
+    }
+    store.emit('roll-ctx');
+  };
+
+  const laneChip = document.createElement('button');
+  laneChip.className = 'ctx-chip';
+  laneChip.onclick = () => {
+    const st = store.getState();
+    st.rollLaneOpen = !st.rollLaneOpen;
+    store.emit('roll-lane', st.rollLane);
   };
 
   const rndChip = document.createElement('button');
@@ -114,6 +166,8 @@ export function createRollView() {
     mpcChip,
     scaleChip,
     Object.assign(document.createElement('div'), { className: 'ctx-spacer' }),
+    lenChip,
+    snapChip,
     patSwingChip,
     laneChip,
     rndChip,
@@ -126,6 +180,13 @@ export function createRollView() {
   const gridCanvas = document.createElement('canvas');
   gridWrap.appendChild(gridCanvas);
   const gridCtx = gridCanvas.getContext('2d');
+
+  // Horizontal Scrollbar Rail
+  const scrollRail = document.createElement('div');
+  scrollRail.className = 'arr-scroll-rail roll-scroll-rail';
+  const scrollThumb = document.createElement('div');
+  scrollThumb.className = 'arr-scroll-thumb';
+  scrollRail.appendChild(scrollThumb);
 
   // Bottom Lane (hidden by default for minimal clutter)
   const laneStrip = document.createElement('div');
@@ -163,9 +224,10 @@ export function createRollView() {
   const laneCtx = laneCanvas.getContext('2d');
 
   laneStrip.append(laneTabs, laneWrap);
-  root.append(strip, gridWrap, laneStrip);
+  root.append(strip, gridWrap, scrollRail, laneStrip);
 
-  // Viewport & cursor state
+  // Viewport & zoom state
+  let zoomStepW = null;
   let stepW = 46;
   let rowH = 26;
   let scrollX = 0; // in steps
@@ -173,6 +235,11 @@ export function createRollView() {
   let cursorStep = 0;
   let cursorMidi = 48;
   let selectedIds = new Set();
+
+  // Multi-touch pinch state
+  const activePointers = new Map();
+  let pinchState = null;
+  let wasPinching = false;
 
   function isDrumTrack() {
     const st = store.getState();
@@ -183,6 +250,67 @@ export function createRollView() {
   function getKeyWidth() {
     return isDrumTrack() ? 86 : 54;
   }
+
+  function getEffectiveSnap() {
+    const st = store.getState();
+    if (st.gridSnapAuto) {
+      if (stepW >= 82) return 0.25; // 1/64
+      if (stepW >= 48) return 0.5;  // 1/32
+      return 1;                     // 1/16
+    }
+    return st.gridSnap || 1;
+  }
+
+  function getMaxScrollX(w, patLen, kw) {
+    const visSteps = Math.max(2, (w - kw) / Math.max(12, stepW));
+    return Math.max(0, patLen - visSteps);
+  }
+
+  let lastRollRailKey = '';
+  function updateRollScrollRail(w, patLen, kw) {
+    const visSteps = Math.max(2, (w - kw) / Math.max(12, stepW));
+    const maxS = Math.max(0, patLen - visSteps);
+    const key = `${Math.round(w)}:${patLen}:${Math.round(stepW)}:${Math.round(scrollX * 10)}`;
+    if (key === lastRollRailKey) return;
+    lastRollRailKey = key;
+
+    if (maxS <= 0.1) {
+      scrollRail.style.display = 'none';
+      return;
+    }
+    scrollRail.style.display = 'block';
+    scrollX = Math.max(0, Math.min(maxS, scrollX));
+    const thumbPct = Math.max(12, Math.min(100, (visSteps / patLen) * 100));
+    const leftPct = (scrollX / maxS) * (100 - thumbPct);
+    scrollThumb.style.width = `${thumbPct}%`;
+    scrollThumb.style.left = `${leftPct}%`;
+  }
+
+  let railDrag = null;
+  scrollRail.addEventListener('pointerdown', (e) => {
+    const st = store.getState();
+    const patLen = st.patterns[st.activePatternId]?.length || 16;
+    const w = gridWrap.clientWidth || 640;
+    const kw = getKeyWidth();
+    const maxS = getMaxScrollX(w, patLen, kw);
+    const rect = scrollRail.getBoundingClientRect();
+    scrollRail.classList.add('active');
+    const norm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+    scrollX = norm * maxS;
+    railDrag = { startX: e.clientX, startScroll: scrollX, maxS, patLen, railW: Math.max(1, rect.width) };
+    scrollRail.setPointerCapture(e.pointerId);
+  });
+  scrollRail.addEventListener('pointermove', (e) => {
+    if (!railDrag) return;
+    const dx = e.clientX - railDrag.startX;
+    scrollX = Math.max(0, Math.min(railDrag.maxS, railDrag.startScroll + (dx / railDrag.railW) * railDrag.patLen));
+  });
+  const endRailDrag = () => {
+    railDrag = null;
+    scrollRail.classList.remove('active');
+  };
+  scrollRail.addEventListener('pointerup', endRailDrag);
+  scrollRail.addEventListener('pointercancel', endRailDrag);
 
   function getDrumSources() {
     const st = store.getState();
@@ -198,18 +326,24 @@ export function createRollView() {
   function getDrumLayout(gridHeight) {
     const sources = getDrumSources();
     const count = Math.max(1, sources.length);
-    const dRowH = Math.max(22, Math.min(54, Math.floor((gridHeight - 24) / count)));
-    const topY = Math.floor((gridHeight - dRowH * count) / 2);
+    const availH = Math.max(60, gridHeight - RULER_H);
+    const dRowH = Math.max(20, Math.min(52, Math.floor((availH - 12) / count)));
+    const topY = RULER_H + Math.floor((availH - dRowH * count) / 2);
     return { sources, rowH: dRowH, topY };
   }
 
-  // Long press for Roll detail overlay
-  attachLongPress(gridWrap, () => {
-    if (dragState) return;
-    const st = store.getState();
-    st.detailOverlay = isDrumTrack() ? { type: 'mpc', trackId: st.selectedTrackId } : { type: 'roll' };
-    store.emit('overlay', st.detailOverlay);
-  });
+  // Long press for Roll detail overlay (only when single pointer not pinching/dragging)
+  attachLongPress(
+    gridWrap,
+    () => {
+      if (dragState?.moved || pinchState || activePointers.size > 1) return;
+      const st = store.getState();
+      st.detailOverlay = isDrumTrack() ? { type: 'mpc', trackId: st.selectedTrackId } : { type: 'roll' };
+      store.emit('overlay', st.detailOverlay);
+    },
+    420,
+    14
+  );
 
   // Pointer interaction on piano roll
   let dragState = null;
@@ -237,6 +371,7 @@ export function createRollView() {
   }
 
   function midiFromY(y, strict = false) {
+    if (strict && y < RULER_H) return null;
     if (isDrumTrack()) {
       const layout = getDrumLayout(gridWrap.clientHeight);
       const idx = Math.floor((y - layout.topY) / layout.rowH);
@@ -244,7 +379,7 @@ export function createRollView() {
       const clamped = Math.max(0, Math.min(layout.sources.length - 1, idx));
       return layout.sources[clamped].midi;
     }
-    return Math.floor(topMidi) - Math.floor(y / rowH);
+    return Math.floor(topMidi) - Math.floor((y - RULER_H) / rowH);
   }
 
   function stepWithHysteresis(currentIdx, targetPosInUnits, minIdx, maxIdx, deadband = 0.18) {
@@ -256,16 +391,17 @@ export function createRollView() {
 
   function getNoteRect(n, kw, drumLayout) {
     const x = kw + (n.step - scrollX) * stepW;
-    const nw = Math.max(10, n.len * stepW);
+    const nw = Math.max(8, n.len * stepW);
     if (drumLayout) {
       const idx = drumLayout.sources.findIndex((s) => s.midi === Math.round(n.midi));
       if (idx === -1) return null;
       return { x, nw, y: drumLayout.topY + idx * drumLayout.rowH, rh: drumLayout.rowH };
     }
-    return { x, nw, y: (Math.floor(topMidi) - n.midi) * rowH, rh: rowH };
+    return { x, nw, y: RULER_H + (Math.floor(topMidi) - n.midi) * rowH, rh: rowH };
   }
 
   function findNoteAt(notes, x, y) {
+    if (y < RULER_H) return null;
     const kw = getKeyWidth();
     const drumLayout = isDrumTrack() ? getDrumLayout(gridWrap.clientHeight) : null;
     for (let i = notes.length - 1; i >= 0; i--) {
@@ -280,13 +416,64 @@ export function createRollView() {
     return null;
   }
 
+  function beginPinch(rect) {
+    const pts = Array.from(activePointers.values());
+    if (pts.length < 2) return;
+    const p0 = pts[0];
+    const p1 = pts[1];
+    const dist = Math.max(16, Math.hypot(p1.x - p0.x, p1.y - p0.y));
+    const midClientX = (p0.x + p1.x) * 0.5;
+    const midClientY = (p0.y + p1.y) * 0.5;
+    const localMidX = midClientX - rect.left;
+    const kw = getKeyWidth();
+    const anchorStep = scrollX + (localMidX - kw) / Math.max(12, stepW);
+
+    dragState = null;
+    store.commitGesture();
+    wasPinching = true;
+    pinchState = {
+      startDist: dist,
+      startStepW: stepW,
+      startRowH: rowH,
+      startMidX: midClientX,
+      startMidY: midClientY,
+      startTopMidi: topMidi,
+      anchorStep,
+      localMidX,
+      w: rect.width
+    };
+  }
+
   gridCanvas.addEventListener('pointerdown', (e) => {
     engine.unlock();
     const rect = gridCanvas.getBoundingClientRect();
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+    if (activePointers.size >= 2) {
+      beginPinch(rect);
+      return;
+    }
+
+    wasPinching = false;
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const st = store.getState();
     const kw = getKeyWidth();
+
+    // Top Beat/Bar Ruler: tap to scrub playhead, drag to pan horizontally
+    if (y < RULER_H && x >= kw) {
+      dragState = {
+        mode: 'ruler',
+        startX: e.clientX,
+        startScroll: scrollX,
+        localX: x,
+        kw,
+        w: rect.width,
+        moved: false
+      };
+      gridCanvas.setPointerCapture(e.pointerId);
+      return;
+    }
 
     // Piano / Drum key audition
     if (x < kw) {
@@ -333,14 +520,14 @@ export function createRollView() {
 
     lastNoteTap = { id: null, time: 0 };
 
-    // Empty cell: draw new note
+    // Empty cell: draw new note at adaptive/selected snap
     let midi = midiFromY(y, true);
     if (midi == null) return;
 
-    const snap = st.gridSnap;
+    const snap = getEffectiveSnap();
     const patLen = st.patterns[st.activePatternId]?.length || 16;
     const rawStep = Math.floor(stepFromX(x) / snap) * snap;
-    const step = Math.max(0, Math.min(patLen - snap, rawStep));
+    const step = Math.max(0, Math.min(patLen - snap, Number(rawStep.toFixed(4))));
     if (st.scaleLock && !isDrumTrack()) {
       midi = snapMidiToScale(midi, st.scaleRoot, st.scaleId);
     }
@@ -380,10 +567,54 @@ export function createRollView() {
   });
 
   gridCanvas.addEventListener('pointermove', (e) => {
-    if (!dragState) return;
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (pinchState && activePointers.size >= 2) {
+      const pts = Array.from(activePointers.values());
+      const p0 = pts[0];
+      const p1 = pts[1];
+      const dist = Math.max(16, Math.hypot(p1.x - p0.x, p1.y - p0.y));
+      const midX = (p0.x + p1.x) * 0.5;
+      const midY = (p0.y + p1.y) * 0.5;
+      const rect = gridCanvas.getBoundingClientRect();
+      const kw = getKeyWidth();
+      const st = store.getState();
+      const patLen = st.patterns[st.activePatternId]?.length || 16;
+
+      const scale = dist / pinchState.startDist;
+      const minStepW = Math.max(14, (rect.width - kw) / Math.max(16, patLen));
+      zoomStepW = Math.max(minStepW, Math.min(148, pinchState.startStepW * scale));
+      stepW = zoomStepW;
+
+      // Keep anchor step directly under pinch midpoint & pan cleanly
+      const localMidX = midX - rect.left;
+      const maxS = getMaxScrollX(rect.width, patLen, kw);
+      scrollX = Math.max(0, Math.min(maxS, pinchState.anchorStep - (localMidX - kw) / stepW));
+
+      if (!isDrumTrack()) {
+        const dy = midY - pinchState.startMidY;
+        topMidi = Math.max(36, Math.min(96, pinchState.startTopMidi + Math.round(dy / rowH)));
+      }
+      syncStrip();
+      return;
+    }
+
+    if (!dragState || wasPinching) return;
     const st = store.getState();
-    const snap = st.gridSnap;
+    const snap = getEffectiveSnap();
     const patLen = st.patterns[st.activePatternId]?.length || 16;
+
+    if (dragState.mode === 'ruler') {
+      const dx = e.clientX - dragState.startX;
+      if (!dragState.moved && Math.abs(dx) > 5) dragState.moved = true;
+      if (dragState.moved) {
+        const maxS = getMaxScrollX(dragState.w, patLen, dragState.kw);
+        scrollX = Math.max(0, Math.min(maxS, dragState.startScroll - dx / Math.max(12, stepW)));
+      }
+      return;
+    }
 
     if (dragState.mode === 'pan-y') {
       const dy = Math.round((e.clientY - dragState.startY) / rowH);
@@ -398,15 +629,15 @@ export function createRollView() {
 
     if (dragState.mode === 'resize') {
       const dSteps = Math.round(dx / stepW / snap) * snap;
-      const nextLen = Math.max(snap, Math.min(patLen - dragState.note.step, dragState.origLen + dSteps));
-      if (nextLen !== dragState.note.len) {
+      const nextLen = Math.max(snap, Math.min(patLen - dragState.note.step, Number((dragState.origLen + dSteps).toFixed(4))));
+      if (Math.abs(nextLen - dragState.note.len) > 0.001) {
         dragState.note.len = nextLen;
         store.markGestureDirty();
         store.emit('notes');
       }
     } else if (dragState.mode === 'move') {
       const dSteps = Math.round(dx / stepW / snap) * snap;
-      const nextStep = Math.max(0, Math.min(patLen - dragState.note.len, dragState.origStep + dSteps));
+      const nextStep = Math.max(0, Math.min(patLen - dragState.note.len, Number((dragState.origStep + dSteps).toFixed(4))));
       const rect = gridCanvas.getBoundingClientRect();
       const localY = e.clientY - rect.top;
       let nextMidi = dragState.note.midi;
@@ -431,13 +662,14 @@ export function createRollView() {
       } else {
         const topInt = Math.floor(topMidi);
         const curRowIdx = topInt - dragState.note.midi;
-        const centerUnits = (localY - dragState.grabOffsetY + rowH * 0.5) / rowH;
+        const centerUnits = (localY - RULER_H - dragState.grabOffsetY + rowH * 0.5) / rowH;
         const nextRowIdx = stepWithHysteresis(curRowIdx, centerUnits, topInt - 96, topInt - 24);
         nextMidi = Math.max(24, Math.min(96, topInt - nextRowIdx));
       }
 
-      if (nextStep !== dragState.note.step || nextMidi !== dragState.note.midi) {
+      if (Math.abs(nextStep - dragState.note.step) > 0.001 || nextMidi !== dragState.note.midi) {
         dragState.note.step = nextStep;
+        cursorStep = nextStep;
         if (nextMidi !== dragState.note.midi) {
           dragState.note.midi = nextMidi;
           cursorMidi = nextMidi;
@@ -450,8 +682,36 @@ export function createRollView() {
   });
 
   gridCanvas.addEventListener('pointerup', (e) => {
+    activePointers.delete(e.pointerId);
+    if (pinchState) {
+      if (activePointers.size < 2) {
+        pinchState = null;
+      }
+      if (activePointers.size === 0) {
+        wasPinching = false;
+      }
+      dragState = null;
+      return;
+    }
+    if (wasPinching) {
+      if (activePointers.size === 0) wasPinching = false;
+      dragState = null;
+      return;
+    }
+
     const finished = dragState;
     dragState = null;
+
+    if (finished?.mode === 'ruler') {
+      if (!finished.moved) {
+        const st = store.getState();
+        const patLen = st.patterns[st.activePatternId]?.length || 16;
+        const target = Math.max(0, Math.min(patLen - 1, Math.floor(scrollX + (finished.localX - finished.kw) / stepW)));
+        st.currentStep = target;
+        store.emit('step', target);
+      }
+      return;
+    }
 
     if (finished && !finished.isNew && !finished.moved && finished.note) {
       const now = performance.now();
@@ -480,7 +740,10 @@ export function createRollView() {
     store.commitGesture();
   });
 
-  gridCanvas.addEventListener('pointercancel', () => {
+  gridCanvas.addEventListener('pointercancel', (e) => {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size < 2) pinchState = null;
+    if (activePointers.size === 0) wasPinching = false;
     store.commitGesture();
     dragState = null;
   });
@@ -491,11 +754,26 @@ export function createRollView() {
     'wheel',
     (e) => {
       e.preventDefault();
+      const st = store.getState();
+      const patLen = st.patterns[st.activePatternId]?.length || 16;
+      const kw = getKeyWidth();
+      const w = gridWrap.clientWidth || 640;
       if (e.ctrlKey || e.metaKey) {
-        stepW = Math.max(22, Math.min(92, stepW - e.deltaY * 0.1));
+        const minStepW = Math.max(14, (w - kw) / Math.max(16, patLen));
+        const rect = gridCanvas.getBoundingClientRect();
+        const localX = e.clientX - rect.left;
+        const anchorStep = scrollX + (localX - kw) / stepW;
+        zoomStepW = Math.max(minStepW, Math.min(148, stepW - e.deltaY * 0.14));
+        stepW = zoomStepW;
+        const maxS = getMaxScrollX(w, patLen, kw);
+        scrollX = Math.max(0, Math.min(maxS, anchorStep - (localX - kw) / stepW));
+        syncStrip();
       } else {
-        scrollX = Math.max(0, Math.min(48, scrollX + e.deltaX / stepW));
-        topMidi = Math.max(36, Math.min(96, topMidi - Math.sign(e.deltaY)));
+        const maxS = getMaxScrollX(w, patLen, kw);
+        scrollX = Math.max(0, Math.min(maxS, scrollX + e.deltaX / Math.max(12, stepW)));
+        if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
+          topMidi = Math.max(36, Math.min(96, topMidi - Math.sign(e.deltaY)));
+        }
       }
     },
     { passive: false }
@@ -550,9 +828,21 @@ export function createRollView() {
     }
   });
 
+  function formatSnapChipText(st) {
+    if (st.gridSnapAuto) {
+      const eff = getEffectiveSnap();
+      const lbl = eff === 0.25 ? '64' : eff === 0.5 ? '32' : '16';
+      return `A·1/${lbl}`;
+    }
+    const opt = SNAP_OPTIONS.find((o) => o.val === st.gridSnap);
+    return opt ? opt.label : '1/16';
+  }
+
   function syncStrip() {
     const st = store.getState();
     const tr = st.tracks[st.selectedTrackId];
+    const pat = st.patterns[st.activePatternId];
+    const patLen = pat?.length || 16;
     const drumMode = isDrumTrack();
     trackChip.textContent = `${tr.code} ${tr.name} ▾`;
 
@@ -566,9 +856,16 @@ export function createRollView() {
       }
     }
 
+    const lenMeta = PAT_LENGTHS.find((l) => l.steps === patLen);
+    lenChip.textContent = lenMeta ? lenMeta.label : `${patLen}S`;
+    lenChip.classList.toggle('active', patLen !== 16);
+
+    snapChip.textContent = formatSnapChipText(st);
+    snapChip.classList.toggle('active', !st.gridSnapAuto || getEffectiveSnap() < 1);
+
     scaleChip.textContent = `${ROOT_NOTES[st.scaleRoot]} ${st.scaleId}`;
     scaleChip.classList.toggle('active', st.scaleLock);
-    const patSwingVal = st.patterns[st.activePatternId]?.swing || 0;
+    const patSwingVal = pat?.swing || 0;
     patSwingChip.querySelector('.val').textContent = `${patSwingVal}%`;
     patSwingChip.classList.toggle('active', patSwingVal > 0);
     laneChip.textContent = st.rollLaneOpen ? `LANE: ${st.rollLane}` : 'LANE';
@@ -591,10 +888,11 @@ export function createRollView() {
     const pat = st.patterns[st.activePatternId];
     const patLen = pat?.length || 16;
     const notes = store.getActiveNotes();
+    const snap = getEffectiveSnap();
 
     if (action.type === 'DPAD') {
-      if (action.dir === 'LEFT') cursorStep = Math.max(0, cursorStep - st.gridSnap);
-      if (action.dir === 'RIGHT') cursorStep = Math.min(patLen - st.gridSnap, cursorStep + st.gridSnap);
+      if (action.dir === 'LEFT') cursorStep = Math.max(0, cursorStep - snap);
+      if (action.dir === 'RIGHT') cursorStep = Math.min(patLen - snap, cursorStep + snap);
       if (isDrumTrack()) {
         const sources = getDrumSources();
         const idx = Math.max(0, sources.findIndex((s) => s.midi === cursorMidi));
@@ -604,10 +902,10 @@ export function createRollView() {
         if (action.dir === 'UP') cursorMidi = Math.min(96, cursorMidi + 1);
         if (action.dir === 'DOWN') cursorMidi = Math.max(24, cursorMidi - 1);
         if (cursorMidi > topMidi - 1) topMidi = cursorMidi + 1;
-        if (cursorMidi < topMidi - 16) topMidi = cursorMidi + 16;
+        if (cursorMidi < topMidi - 14) topMidi = cursorMidi + 14;
       }
     } else if (action.type === 'A_TAP') {
-      const existing = notes.find((n) => Math.abs(n.step - cursorStep) < 0.1 && n.midi === cursorMidi);
+      const existing = notes.find((n) => Math.abs(n.step - cursorStep) < 0.08 && n.midi === cursorMidi);
       if (existing) {
         if (action.l2 || st.slideMode) {
           store.pushHistory('SLIDE NOTE');
@@ -621,7 +919,7 @@ export function createRollView() {
         const nn = {
           id: nextId('n'),
           step: cursorStep,
-          len: st.gridSnap,
+          len: snap,
           midi: m,
           vel: 106,
           prob: 100,
@@ -636,7 +934,7 @@ export function createRollView() {
       st.detailOverlay = { type: 'roll' };
       store.emit('overlay', st.detailOverlay);
     } else if (action.type === 'B') {
-      const filtered = notes.filter((n) => !selectedIds.has(n.id) && !(Math.abs(n.step - cursorStep) < 0.1 && n.midi === cursorMidi));
+      const filtered = notes.filter((n) => !selectedIds.has(n.id) && !(Math.abs(n.step - cursorStep) < 0.08 && n.midi === cursorMidi));
       if (filtered.length !== notes.length) {
         store.setActiveNotes(filtered, undefined, undefined, 'DEL NOTE');
       }
@@ -658,13 +956,14 @@ export function createRollView() {
       }
       store.emit('roll-lane', st.rollLane);
     } else if (action.type === 'STICKS') {
-      if (action.lx) scrollX = Math.max(0, Math.min(48, scrollX + action.lx * 0.4));
+      const maxS = getMaxScrollX(gridWrap.clientWidth || 640, patLen, getKeyWidth());
+      if (action.lx) scrollX = Math.max(0, Math.min(maxS, scrollX + action.lx * 0.4));
       if (action.ly) topMidi = Math.max(36, Math.min(96, topMidi - action.ly * 0.4));
       if (selectedIds.size > 0 && (action.rx || action.ry)) {
         store.pushHistoryCoalesced('roll-stick', 'EDIT NOTE');
         for (const n of notes) {
           if (!selectedIds.has(n.id)) continue;
-          if (action.rx) n.len = Math.max(0.5, Math.min(16, n.len + action.rx * 0.1));
+          if (action.rx) n.len = Math.max(0.25, Math.min(16, n.len + action.rx * 0.1));
           if (action.ry) n.vel = Math.max(15, Math.min(127, Math.round(n.vel - action.ry * 3)));
         }
         store.emit('notes');
@@ -694,22 +993,94 @@ export function createRollView() {
     const patLen = pat?.length || 16;
     const drumMode = isDrumTrack();
     const kw = getKeyWidth();
-    stepW = Math.max(24, (w - kw) / Math.min(patLen, 16));
+
+    if (zoomStepW == null && w > kw + 20) {
+      zoomStepW = Math.max(20, (w - kw) / Math.min(patLen, 16));
+    }
+    const minStepW = Math.max(14, (w - kw) / Math.max(16, patLen));
+    stepW = Math.max(minStepW, Math.min(148, zoomStepW || 40));
+    const maxS = getMaxScrollX(w, patLen, kw);
+    scrollX = Math.max(0, Math.min(maxS, scrollX));
+    updateRollScrollRail(w, patLen, kw);
 
     gridCtx.save();
     gridCtx.scale(dpr, dpr);
     gridCtx.fillStyle = bg;
     gridCtx.fillRect(0, 0, w, h);
 
+    // Top 18px Beat/Bar Ruler
+    gridCtx.fillStyle = surface;
+    gridCtx.fillRect(0, 0, w, RULER_H);
+    gridCtx.strokeStyle = border;
+    gridCtx.lineWidth = 1;
+    gridCtx.beginPath();
+    gridCtx.moveTo(0, RULER_H + 0.5);
+    gridCtx.lineTo(w, RULER_H + 0.5);
+    gridCtx.stroke();
+
+    gridCtx.fillStyle = inkDim;
+    gridCtx.font = '700 8.5px Geist Mono, monospace';
+    gridCtx.fillText(`${pat?.length || 16}S`, 6, 12.5);
+
+    for (let s = 0; s < patLen; s += 4) {
+      const rx = Math.round(kw + (s - scrollX) * stepW);
+      if (rx < kw - 24 || rx > w) continue;
+      const bar = Math.floor(s / 16) + 1;
+      const beat = Math.floor((s % 16) / 4) + 1;
+      gridCtx.fillStyle = beat === 1 ? ink : inkDim;
+      gridCtx.fillText(`${bar}.${beat}`, Math.max(kw + 2, rx + 3), 12.5);
+    }
+
     const drumLayout = drumMode ? getDrumLayout(h) : null;
     const flashMap = drumMode ? engine.getDrumNode(st.selectedTrackId)?.getPadInfo?.()?.padFlashAt : null;
     const now = performance.now();
+
+    const drawVerticalGridLines = (topY, botY) => {
+      for (let s = 0; s <= patLen; s++) {
+        const x = Math.round(kw + (s - scrollX) * stepW) + 0.5;
+        if (x >= kw && x <= w) {
+          gridCtx.strokeStyle = s % 16 === 0 ? borderStrong : s % 4 === 0 ? gridBeat : gridSub;
+          gridCtx.lineWidth = 1;
+          gridCtx.beginPath();
+          gridCtx.moveTo(x, s % 4 === 0 ? 4 : topY);
+          gridCtx.lineTo(x, botY);
+          gridCtx.stroke();
+        }
+        if (s < patLen && stepW >= 48) {
+          const halfX = Math.round(kw + (s + 0.5 - scrollX) * stepW) + 0.5;
+          if (halfX >= kw && halfX <= w) {
+            gridCtx.save();
+            gridCtx.setLineDash([2, 3]);
+            gridCtx.strokeStyle = gridSub;
+            gridCtx.beginPath();
+            gridCtx.moveTo(halfX, topY);
+            gridCtx.lineTo(halfX, botY);
+            gridCtx.stroke();
+            gridCtx.restore();
+          }
+        }
+        if (s < patLen && stepW >= 82) {
+          for (const q of [0.25, 0.75]) {
+            const qx = Math.round(kw + (s + q - scrollX) * stepW) + 0.5;
+            if (qx >= kw && qx <= w) {
+              gridCtx.save();
+              gridCtx.setLineDash([1, 3]);
+              gridCtx.strokeStyle = gridSub;
+              gridCtx.beginPath();
+              gridCtx.moveTo(qx, topY);
+              gridCtx.lineTo(qx, botY);
+              gridCtx.stroke();
+              gridCtx.restore();
+            }
+          }
+        }
+      }
+    };
 
     if (drumLayout) {
       const { sources, rowH: dRowH, topY } = drumLayout;
       const blockH = sources.length * dRowH;
 
-      // Subtle shaded lane rows strictly for active drum sources
       sources.forEach((src, r) => {
         const y = topY + r * dRowH;
         if (r % 2 === 0) {
@@ -723,7 +1094,6 @@ export function createRollView() {
         gridCtx.lineTo(w, y + 0.5);
         gridCtx.stroke();
 
-        // Pad Label Key
         const hitFlash = flashMap && now - (flashMap[src.index] || 0) < 120;
         gridCtx.fillStyle = surface;
         gridCtx.fillRect(0, y, kw - 1, dRowH - 1);
@@ -740,7 +1110,6 @@ export function createRollView() {
         gridCtx.restore();
       });
 
-      // Strict top & bottom bounding hairlines
       gridCtx.strokeStyle = borderStrong;
       gridCtx.beginPath();
       gridCtx.moveTo(0, topY + 0.5);
@@ -749,23 +1118,13 @@ export function createRollView() {
       gridCtx.lineTo(w, topY + blockH + 0.5);
       gridCtx.stroke();
 
-      // Vertical grid lines clipped strictly inside centered drum block
-      for (let s = 0; s <= patLen; s++) {
-        const x = Math.round(kw + (s - scrollX) * stepW) + 0.5;
-        if (x < kw || x > w) continue;
-        gridCtx.strokeStyle = s % 4 === 0 ? gridBeat : gridSub;
-        gridCtx.lineWidth = 1;
-        gridCtx.beginPath();
-        gridCtx.moveTo(x, topY);
-        gridCtx.lineTo(x, topY + blockH);
-        gridCtx.stroke();
-      }
+      drawVerticalGridLines(topY, topY + blockH);
     } else {
-      const rows = Math.ceil(h / rowH);
+      const rows = Math.ceil((h - RULER_H) / rowH);
       const draggedMidi = dragState?.note ? Math.round(dragState.note.midi) : null;
       for (let r = 0; r < rows; r++) {
         const midi = Math.floor(topMidi) - r;
-        const y = r * rowH;
+        const y = RULER_H + r * rowH;
         const pc = ((midi % 12) + 12) % 12;
         const isBlackKey = [1, 3, 6, 8, 10].includes(pc);
         const inScale = isMidiInScale(midi, st.scaleRoot, st.scaleId);
@@ -794,16 +1153,7 @@ export function createRollView() {
         }
       }
 
-      for (let s = 0; s <= patLen; s++) {
-        const x = Math.round(kw + (s - scrollX) * stepW) + 0.5;
-        if (x < kw || x > w) continue;
-        gridCtx.strokeStyle = s % 4 === 0 ? gridBeat : gridSub;
-        gridCtx.lineWidth = 1;
-        gridCtx.beginPath();
-        gridCtx.moveTo(x, 0);
-        gridCtx.lineTo(x, h);
-        gridCtx.stroke();
-      }
+      drawVerticalGridLines(RULER_H, h);
     }
 
     // Ghost notes from ghostPatternId
@@ -816,8 +1166,8 @@ export function createRollView() {
       for (const gList of Object.values(gPat.notesByTrack)) {
         for (const gn of gList) {
           const box = getNoteRect(gn, kw, drumLayout);
-          if (!box || box.y < -box.rh || box.y > h) continue;
-          gridCtx.strokeRect(box.x + 1, box.y + 2, Math.max(8, box.nw - 2), box.rh - 4);
+          if (!box || box.y < RULER_H - box.rh || box.y > h) continue;
+          gridCtx.strokeRect(box.x + 1, box.y + 2, Math.max(6, box.nw - 2), box.rh - 4);
         }
       }
       gridCtx.restore();
@@ -827,10 +1177,10 @@ export function createRollView() {
     const notes = store.getActiveNotes();
     for (const n of notes) {
       const box = getNoteRect(n, kw, drumLayout);
-      if (!box || box.y < -box.rh || box.y > h) continue;
+      if (!box || box.y < RULER_H - box.rh || box.y > h) continue;
 
       const x = box.x;
-      const nw = Math.max(10, box.nw - 2);
+      const nw = Math.max(8, box.nw - 2);
       const y = box.y + 1;
       const nh = box.rh - 3;
 
@@ -860,33 +1210,36 @@ export function createRollView() {
     }
 
     // D-Pad Cursor
-    const curBox = getNoteRect({ step: cursorStep, len: 1, midi: cursorMidi }, kw, drumLayout);
-    if (curBox) {
+    const curBox = getNoteRect({ step: cursorStep, len: getEffectiveSnap(), midi: cursorMidi }, kw, drumLayout);
+    if (curBox && curBox.y >= RULER_H) {
       gridCtx.strokeStyle = borderStrong;
       gridCtx.lineWidth = 1;
-      gridCtx.strokeRect(curBox.x + 0.5, curBox.y + 0.5, stepW - 1, curBox.rh - 1);
+      gridCtx.strokeRect(curBox.x + 0.5, curBox.y + 0.5, Math.max(8, curBox.nw) - 1, curBox.rh - 1);
     }
 
     // Playhead
     const playStep = st.currentStep % patLen;
     const px = kw + (playStep - scrollX) * stepW;
     if (px >= kw && px <= w) {
-      const topY = drumLayout ? drumLayout.topY : 0;
+      const topY = drumLayout ? drumLayout.topY : RULER_H;
       const botY = drumLayout ? drumLayout.topY + drumLayout.sources.length * drumLayout.rowH : h;
       gridCtx.strokeStyle = accent;
       gridCtx.lineWidth = 1.5;
       gridCtx.beginPath();
-      gridCtx.moveTo(px, topY);
+      gridCtx.moveTo(px, 0);
       gridCtx.lineTo(px, botY);
       gridCtx.stroke();
 
       gridCtx.fillStyle = accent;
       gridCtx.beginPath();
-      gridCtx.moveTo(px - 4, topY);
-      gridCtx.lineTo(px + 4, topY);
-      gridCtx.lineTo(px, topY + 6);
+      gridCtx.moveTo(px - 4, 0);
+      gridCtx.lineTo(px + 4, 0);
+      gridCtx.lineTo(px, 6);
       gridCtx.closePath();
       gridCtx.fill();
+      if (topY > RULER_H) {
+        gridCtx.fillRect(px - 0.5, RULER_H, 1, topY - RULER_H);
+      }
     }
 
     gridCtx.restore();
@@ -899,7 +1252,6 @@ export function createRollView() {
     laneCtx.fillStyle = surface;
     laneCtx.fillRect(0, 0, lw, lh);
 
-    // Draw note stalks synced to stepW
     for (let s = 0; s <= patLen; s++) {
       const x = Math.round((s - scrollX) * stepW) + 0.5;
       if (x < 0 || x > lw) continue;
@@ -1128,7 +1480,7 @@ export function createRollView() {
     const pat = st.patterns[st.activePatternId];
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>ROLL // GRID & SCALE</span>`;
+    hdr.innerHTML = `<span>ROLL // GRID, LENGTH & SCALE</span>`;
     const close = document.createElement('button');
     close.className = 'ctx-chip';
     close.textContent = 'CLOSE [B]';
@@ -1141,7 +1493,6 @@ export function createRollView() {
     const body = document.createElement('div');
     body.className = 'overlay-body';
 
-    // Grid Snap, Length, Ghost, Slide / Drum Mode
     const gridBar = document.createElement('div');
     gridBar.style.display = 'flex';
     gridBar.style.gap = '6px';
@@ -1150,27 +1501,65 @@ export function createRollView() {
     const snapBtn = document.createElement('button');
     snapBtn.className = 'ctx-chip';
     const updateSnapTxt = () => {
-      const sObj = SNAP_OPTIONS.find((s) => s.val === st.gridSnap) || SNAP_OPTIONS[1];
-      snapBtn.textContent = `SNAP: ${sObj.label}`;
+      snapBtn.textContent = `SNAP: ${formatSnapChipText(st)}`;
     };
     updateSnapTxt();
     snapBtn.onclick = () => {
-      const idx = SNAP_OPTIONS.findIndex((s) => s.val === st.gridSnap);
-      st.gridSnap = SNAP_OPTIONS[(idx + 1) % SNAP_OPTIONS.length].val;
+      const curKey = st.gridSnapAuto ? 'AUTO' : st.gridSnap;
+      const idx = SNAP_OPTIONS.findIndex((s) => s.val === curKey);
+      const next = SNAP_OPTIONS[(idx + 1) % SNAP_OPTIONS.length];
+      if (next.val === 'AUTO') {
+        st.gridSnapAuto = true;
+      } else {
+        st.gridSnapAuto = false;
+        st.gridSnap = next.val;
+      }
       updateSnapTxt();
       store.emit('roll-ctx');
     };
 
-    const lenBtn = document.createElement('button');
-    lenBtn.className = 'ctx-chip';
-    lenBtn.textContent = `LEN: ${pat?.length || 16}`;
-    lenBtn.onclick = () => {
-      const lens = [16, 32, 64];
-      store.pushHistory('PAT LEN');
-      pat.length = lens[(lens.indexOf(pat.length) + 1) % lens.length];
-      lenBtn.textContent = `LEN: ${pat.length}`;
+    // Pattern Length pills (1B=4, 2B=8, 4B=16, 8B=32, 16B=64) + x2 DUP
+    const lenBar = document.createElement('div');
+    lenBar.style.display = 'flex';
+    lenBar.style.gap = '4px';
+    lenBar.style.flexWrap = 'wrap';
+    PAT_LENGTHS.forEach(({ steps, label }) => {
+      const lb = document.createElement('button');
+      lb.className = `ctx-chip ${pat.length === steps ? 'active' : ''}`;
+      lb.textContent = `${label} (${steps})`;
+      lb.onclick = () => {
+        store.pushHistory(`LEN ${label}`);
+        pat.length = steps;
+        lenBar.querySelectorAll('.ctx-chip').forEach((c) => c.classList.remove('active'));
+        lb.classList.add('active');
+        store.emit('notes');
+        store.emit('roll-ctx');
+      };
+      lenBar.appendChild(lb);
+    });
+
+    const dupBtn = document.createElement('button');
+    dupBtn.className = 'ctx-chip solid';
+    dupBtn.textContent = '×2 DUP';
+    dupBtn.onclick = () => {
+      if (pat.length >= 64) return;
+      const oldLen = pat.length;
+      const nextLen = Math.min(64, oldLen * 2);
+      store.pushHistory(`×2 PAT (${nextLen})`);
+      pat.length = nextLen;
+      for (const [tid, list] of Object.entries(pat.notesByTrack)) {
+        const copies = list
+          .filter((n) => n.step < oldLen)
+          .map((n) => ({ ...n, id: nextId('n'), step: n.step + oldLen }))
+          .filter((n) => n.step < nextLen);
+        pat.notesByTrack[tid] = [...list, ...copies];
+      }
+      panelEl.innerHTML = '';
+      renderDetailOverlay(panelEl);
       store.emit('notes');
+      store.emit('roll-ctx');
     };
+    lenBar.appendChild(dupBtn);
 
     const ghostBtn = document.createElement('button');
     ghostBtn.className = `ctx-chip ${st.ghostPatternId ? 'active' : ''}`;
@@ -1205,6 +1594,17 @@ export function createRollView() {
       store.emit('roll-ctx');
     };
 
+    const zoomResetBtn = document.createElement('button');
+    zoomResetBtn.className = 'ctx-chip';
+    zoomResetBtn.textContent = 'FIT ZOOM';
+    zoomResetBtn.onclick = () => {
+      const kw = getKeyWidth();
+      const w = gridWrap.clientWidth || 640;
+      zoomStepW = Math.max(16, (w - kw) / Math.min(pat.length, 16));
+      stepW = zoomStepW;
+      scrollX = 0;
+    };
+
     const labBtn = document.createElement('button');
     labBtn.className = 'ctx-chip';
     labBtn.textContent = '+LAB';
@@ -1214,7 +1614,7 @@ export function createRollView() {
       store.emit('overlay', st.detailOverlay);
     };
 
-    gridBar.append(snapBtn, lenBtn, ghostBtn, slideBtn, lockBtn, labBtn);
+    gridBar.append(snapBtn, zoomResetBtn, ghostBtn, slideBtn, lockBtn, labBtn);
     if (isDrumTrack()) {
       const dBtn = document.createElement('button');
       const curM = Math.round(st.tracks[st.selectedTrackId]?.inserts[0]?.params.mode || 0);
@@ -1229,7 +1629,7 @@ export function createRollView() {
       };
       gridBar.appendChild(dBtn);
     }
-    body.appendChild(gridBar);
+    body.append(gridBar, lenBar);
 
     const rootBar = document.createElement('div');
     rootBar.style.display = 'flex';
@@ -1266,6 +1666,7 @@ export function createRollView() {
     const ops = document.createElement('div');
     ops.style.display = 'flex';
     ops.style.gap = '8px';
+    ops.style.flexWrap = 'wrap';
     const quantizeBtn = document.createElement('button');
     quantizeBtn.className = 'ctx-chip';
     quantizeBtn.textContent = 'QUANTIZE TO SCALE';

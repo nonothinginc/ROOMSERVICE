@@ -987,6 +987,32 @@ export function createDspView() {
       footer.appendChild(slotTag);
 
       if (slotIdx > 0) {
+        const moveWrap = document.createElement('div');
+        moveWrap.style.display = 'flex';
+        moveWrap.style.gap = '4px';
+        moveWrap.style.alignItems = 'center';
+        if (slotIdx > 1) {
+          const leftBtn = document.createElement('button');
+          leftBtn.className = 'dsp-handle-btn';
+          leftBtn.textContent = '◀';
+          leftBtn.title = 'Move Left';
+          leftBtn.onclick = (e) => {
+            e.stopPropagation();
+            store.moveInsertDevice(tr.id, slotIdx, slotIdx - 1);
+          };
+          moveWrap.appendChild(leftBtn);
+        }
+        if (slotIdx < tr.inserts.length - 1) {
+          const rightBtn = document.createElement('button');
+          rightBtn.className = 'dsp-handle-btn';
+          rightBtn.textContent = '▶';
+          rightBtn.title = 'Move Right';
+          rightBtn.onclick = (e) => {
+            e.stopPropagation();
+            store.moveInsertDevice(tr.id, slotIdx, slotIdx + 1);
+          };
+          moveWrap.appendChild(rightBtn);
+        }
         const byp = document.createElement('button');
         byp.className = `dsp-bypass-sq ${slot.bypass ? 'bypassed' : 'active'}`;
         byp.title = slot.bypass ? 'Enable' : 'Bypass';
@@ -994,7 +1020,8 @@ export function createDspView() {
           e.stopPropagation();
           store.toggleDeviceBypass(tr.id, slotIdx);
         };
-        footer.appendChild(byp);
+        moveWrap.appendChild(byp);
+        footer.appendChild(moveWrap);
       } else {
         const swapMini = document.createElement('button');
         swapMini.className = 'dsp-bypass-sq active';

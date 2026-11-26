@@ -1,9 +1,80 @@
 let initialized = false;
+let authenticStarted = false;
+let authenticLoaded = false;
 let poolUid = 1;
 
 const samplePool = [];
 const sampleById = new Map();
 const reversedCache = new WeakMap();
+const kitUpdateListeners = new Set();
+
+export function onDrumKitsUpdated(fn) {
+  kitUpdateListeners.add(fn);
+  return () => kitUpdateListeners.delete(fn);
+}
+
+const AUTHENTIC_FILES = {
+  '909_0': './samples/909/kick.wav',
+  '909_1': './samples/909/snare.wav',
+  '909_2': './samples/909/clap.wav',
+  '909_3': './samples/909/ch.wav',
+  '909_4': './samples/909/oh.wav',
+  '909_5': './samples/909/rim.wav',
+  '909_6': './samples/909/tom.wav',
+  '909_7': './samples/909/ride.wav',
+  '808_0': './samples/808/kick.wav',
+  '808_1': './samples/808/snare.wav',
+  '808_2': './samples/808/clap.wav',
+  '808_3': './samples/808/ch.wav',
+  '808_4': './samples/808/oh.wav',
+  '808_5': './samples/808/clave.wav',
+  '808_6': './samples/808/tom.wav',
+  '808_7': './samples/808/cowbell.wav'
+};
+
+export async function loadAuthenticDrumKits(audioCtx) {
+  if (!audioCtx || authenticLoaded || authenticStarted) return;
+  authenticStarted = true;
+  try {
+    const entries = Object.entries(AUTHENTIC_FILES);
+    let updatedCount = 0;
+    await Promise.all(
+      entries.map(async ([id, url]) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return;
+          const ab = await res.arrayBuffer();
+          const buf = await audioCtx.decodeAudioData(ab);
+          const entry = sampleById.get(id);
+          if (entry && buf) {
+            entry.buffer = buf;
+            entry.peaks = computePeaks(buf);
+            entry.duration = buf.duration;
+            entry.authentic = true;
+            reversedCache.delete(buf);
+            updatedCount++;
+          }
+        } catch {
+          // Keep offline fallback buffer for this slot
+        }
+      })
+    );
+    if (updatedCount > 0) {
+      authenticLoaded = true;
+      for (const fn of kitUpdateListeners) {
+        try {
+          fn();
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      authenticStarted = false;
+    }
+  } catch {
+    authenticStarted = false;
+  }
+}
 
 export const KIT_NAMES = ['909', '808', 'RAND', 'COMBO'];
 
@@ -233,10 +304,15 @@ function create808Bank(audioCtx) {
 }
 
 export function ensureFactoryDrumKits(audioCtx) {
-  if (initialized || !audioCtx) return;
-  initialized = true;
-  create909Bank(audioCtx);
-  create808Bank(audioCtx);
+  if (!audioCtx) return;
+  if (!initialized) {
+    initialized = true;
+    create909Bank(audioCtx);
+    create808Bank(audioCtx);
+  }
+  if (!authenticLoaded && !authenticStarted) {
+    loadAuthenticDrumKits(audioCtx);
+  }
 }
 
 export function getSamplePool() {

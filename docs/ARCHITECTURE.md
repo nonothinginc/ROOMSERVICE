@@ -9,15 +9,19 @@ ROOMSERVICE/
 ├── public/
 │   ├── icon.svg                 # Monochrome Nothing/Rams vector icon
 │   ├── manifest.webmanifest     # Landscape fullscreen PWA manifest (./ relative URLs)
-│   └── sw.js                    # Offline cache ('roomservice-v4') & cache fallback
+│   ├── samples/
+│   │   ├── 808/*.wav            # Authentic Roland TR-808 WAV kit (oramics/sampled)
+│   │   └── 909/*.wav            # Authentic Roland TR-909 WAV kit (oramics/sampled)
+│   └── sw.js                    # Offline cache ('roomservice-v6') & cache fallback
 ├── src/
 │   ├── main.js                  # 3-zone chassis bootstrap, modal router, autosave & 120fps loop
 │   ├── device-registry.js       # import.meta.glob('./devices/*.js', { eager: true }) auto-discovery (+ extendedParams)
 │   ├── styles/main.css          # Dark/Light theme tokens, 3-zone rails, Mix/ARR/DSP/MPC/Triage styling
 │   ├── audio/
-│   │   ├── engine.js            # Tone.js v15 AudioEngine, IEC stereo Peak+RMS+GR meters, LAB preview, ZIP I/O
+│   │   ├── engine.js            # Tone.js v15 AudioEngine, sub-16th clock, live REC, IEC stereo meters, ZIP I/O
+│   │   ├── analog-drums.js      # Virtual analog TR-808 (io-808) & TR-909 WebAudio circuit DSP engines
 │   │   ├── bpm-detector.js      # Peak & transient onset detection for imported/mic audio clips
-│   │   └── drum-kits.js         # Offline synthesized 909/808 PCM kits + custom USER sample pool
+│   │   └── drum-kits.js         # Authentic 808/909 WAV loader + instant offline fallback + USER sample pool
 │   ├── devices/
 │   │   ├── mono303.js           # Acid mono synth (SAW|SQR segmented + FL slide portamento)
 │   │   ├── drum8.js             # Hybrid 8-voice Synth & 16-pad Sampler Rack + per-pad mod & global bus FX

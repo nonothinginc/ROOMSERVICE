@@ -211,37 +211,37 @@ export function renderMpcEditor(panelEl, trackId) {
 
     hdrRight.append(synthBtn, rackBtn);
 
+    const sep = document.createElement('div');
+    sep.className = 'ctx-sep';
+    hdrRight.appendChild(sep);
+
+    KIT_NAMES.forEach((kName, kIdx) => {
+      const kb = document.createElement('button');
+      kb.className = `ctx-chip ${info.kit === kIdx ? 'active' : ''}`;
+      kb.textContent = kName;
+      kb.onclick = () => {
+        store.pushHistory(`KIT ${kName}`);
+        store.setDeviceParam(trackId, 0, 'kit', kIdx);
+        if (kIdx >= 2) node.rerollKit();
+        store.emit('drum-pads', { trackId });
+        rebuild();
+      };
+      hdrRight.appendChild(kb);
+    });
+
+    if (info.kit >= 2) {
+      const reroll = document.createElement('button');
+      reroll.className = 'ctx-chip';
+      reroll.textContent = 'REROLL';
+      reroll.onclick = () => {
+        node.rerollKit();
+        store.emit('drum-pads', { trackId });
+        rebuild();
+      };
+      hdrRight.appendChild(reroll);
+    }
+
     if (isRack) {
-      const sep = document.createElement('div');
-      sep.className = 'ctx-sep';
-      hdrRight.appendChild(sep);
-
-      KIT_NAMES.forEach((kName, kIdx) => {
-        const kb = document.createElement('button');
-        kb.className = `ctx-chip ${info.kit === kIdx ? 'active' : ''}`;
-        kb.textContent = kName;
-        kb.onclick = () => {
-          store.pushHistory(`KIT ${kName}`);
-          store.setDeviceParam(trackId, 0, 'kit', kIdx);
-          if (kIdx >= 2) node.rerollKit();
-          store.emit('drum-pads', { trackId });
-          rebuild();
-        };
-        hdrRight.appendChild(kb);
-      });
-
-      if (info.kit >= 2) {
-        const reroll = document.createElement('button');
-        reroll.className = 'ctx-chip';
-        reroll.textContent = 'REROLL';
-        reroll.onclick = () => {
-          node.rerollKit();
-          store.emit('drum-pads', { trackId });
-          rebuild();
-        };
-        hdrRight.appendChild(reroll);
-      }
-
       const addPoolBtn = document.createElement('button');
       addPoolBtn.className = 'ctx-chip solid';
       addPoolBtn.textContent = `+ POOL (${pool.length})`;
@@ -280,7 +280,8 @@ export function renderMpcEditor(panelEl, trackId) {
       padBtn.className = `mpc-pad ${selectedPad === idx ? 'selected' : ''} ${!isActive ? 'empty' : ''}`;
 
       const numStr = String(idx + 1).padStart(2, '0');
-      const bankTag = !isRack ? (idx < 8 ? 'SYN' : '--') : pad.active ? pad.bank : '--';
+      const synCircuit = info.synthVoiceCircuit?.[idx] === 1 ? 'VA808' : 'VA909';
+      const bankTag = !isRack ? (idx < 8 ? synCircuit : '--') : pad.active ? pad.bank : '--';
       const label = !isRack ? (idx < 8 ? pad.name.replace(/^(909|808)\s+/, '') : '--') : pad.active ? pad.name : 'EMPTY';
 
       padBtn.innerHTML = `

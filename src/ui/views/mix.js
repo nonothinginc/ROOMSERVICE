@@ -5,9 +5,30 @@ import { attachLongPress } from '../components/longpress.js';
 import { createRotary } from '../components/rotary.js';
 
 function gainToDbText(gain) {
-  if (gain <= 0.001) return '-INF';
+  if (gain <= 0.004) return '-INF';
   const db = 20 * Math.log10(gain);
   return `${db >= 0 ? '+' : ''}${db.toFixed(1)}`;
+}
+
+function normToGain(norm) {
+  const n = Math.max(0, Math.min(1, norm));
+  if (n <= 0.008) return 0;
+  if (n <= 0.87) {
+    const db = -48 * Math.pow(1 - (n - 0.008) / (0.87 - 0.008), 1.45);
+    return Math.pow(10, db / 20);
+  }
+  const db = ((n - 0.87) / (1 - 0.87)) * 3.0;
+  return Math.pow(10, db / 20);
+}
+
+function gainToNorm(gain) {
+  if (gain <= 0.004) return 0;
+  const db = 20 * Math.log10(gain);
+  if (db <= 0) {
+    const ratio = Math.max(0, Math.min(1, -db / 48));
+    return Math.max(0, 0.87 - Math.pow(ratio, 1 / 1.45) * (0.87 - 0.008));
+  }
+  return Math.min(1, 0.87 + (db / 3.0) * (1 - 0.87));
 }
 
 function createMeterState() {
@@ -311,7 +332,7 @@ export function createMixView() {
     function updateFromY(clientY) {
       const rect = trackEl.getBoundingClientRect();
       const norm = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
-      const val = norm * 1.15;
+      const val = normToGain(norm);
       if (Math.abs(val - getVal()) > 0.002) {
         store.markGestureDirty();
         setVal(val);
@@ -374,6 +395,7 @@ export function createMixView() {
     sends.className = 'mix-sends';
     let sendARot = null;
     let sendBRot = null;
+    let panRot = null;
     let extraRot = null;
 
     if (isChannel) {
@@ -381,7 +403,7 @@ export function createMixView() {
       sendARot = createRotary({
         param: { id: 'sendA', label: 'A', min: 0, max: 1, default: 0, step: 0.02, unit: '' },
         value: tr.sendA,
-        size: 30,
+        size: 26,
         compact: true,
         onGestureStart: () => store.beginGesture(`${tr.code} SND A`),
         onGestureEnd: () => store.commitGesture(),
@@ -390,13 +412,22 @@ export function createMixView() {
       sendBRot = createRotary({
         param: { id: 'sendB', label: 'B', min: 0, max: 1, default: 0, step: 0.02, unit: '' },
         value: tr.sendB,
-        size: 30,
+        size: 26,
         compact: true,
         onGestureStart: () => store.beginGesture(`${tr.code} SND B`),
         onGestureEnd: () => store.commitGesture(),
         onChange: (v) => store.setTrackParam(trackId, 'sendB', v)
       });
-      sends.append(sendARot.el, sendBRot.el);
+      panRot = createRotary({
+        param: { id: 'pan', label: 'P', min: -1, max: 1, default: 0, step: 0.02, unit: '' },
+        value: tr.pan,
+        size: 26,
+        compact: true,
+        onGestureStart: () => store.beginGesture(`${tr.code} PAN`),
+        onGestureEnd: () => store.commitGesture(),
+        onChange: (v) => store.setTrackParam(trackId, 'pan', v)
+      });
+      sends.append(sendARot.el, sendBRot.el, panRot.el);
     } else if (code === 'SND A' || code === 'SND B') {
       const key = code === 'SND A' ? 'sendA' : 'sendB';
       const ret = store.getState().returns[key];
@@ -572,6 +603,7 @@ export function createMixView() {
       soloBtn,
       sendARot,
       sendBRot,
+      panRot,
       extraRot
     };
   }
@@ -632,7 +664,7 @@ export function createMixView() {
   masterDock.appendChild(masterRef.el);
 
   function updateCap(ref, vol) {
-    const pct = Math.max(0, Math.min(1, vol / 1.15));
+    const pct = gainToNorm(vol);
     ref.faderCap.style.top = `${(1 - pct) * 86 + 7}%`;
     ref.dbEl.textContent = gainToDbText(vol);
   }
@@ -660,6 +692,7 @@ export function createMixView() {
       ref.soloBtn.classList.toggle('active', tr.solo);
       ref.sendARot?.setValue(tr.sendA);
       ref.sendBRot?.setValue(tr.sendB);
+      ref.panRot?.setValue(tr.pan);
       renderFxBadge(ref.fxBtn, tr);
       updateCap(ref, tr.volume);
     }
@@ -933,6 +966,28 @@ export function createMixView() {
           };
           row.appendChild(swapBtn);
         } else {
+          if (slotIdx > 1) {
+            const upBtn = document.createElement('button');
+            upBtn.className = 'ctx-chip';
+            upBtn.textContent = '↑';
+            upBtn.title = 'Move Up';
+            upBtn.onclick = () => {
+              store.moveInsertDevice(tid, slotIdx, slotIdx - 1);
+              rebuild();
+            };
+            row.appendChild(upBtn);
+          }
+          if (slotIdx < tr.inserts.length - 1) {
+            const dnBtn = document.createElement('button');
+            dnBtn.className = 'ctx-chip';
+            dnBtn.textContent = '↓';
+            dnBtn.title = 'Move Down';
+            dnBtn.onclick = () => {
+              store.moveInsertDevice(tid, slotIdx, slotIdx + 1);
+              rebuild();
+            };
+            row.appendChild(dnBtn);
+          }
           const bypBtn = document.createElement('button');
           bypBtn.className = `ctx-chip ${!slot.bypass ? 'active' : ''}`;
           bypBtn.textContent = slot.bypass ? 'BYP' : 'ON';

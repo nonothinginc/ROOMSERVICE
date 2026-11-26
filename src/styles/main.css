@@ -524,7 +524,7 @@ body {
   color: var(--ink);
 }
 
-/* Playlist Horizontal Rail */
+/* Playlist & Roll Horizontal Rail */
 .arr-scroll-rail {
   height: 12px;
   width: 100%;
@@ -534,6 +534,10 @@ body {
   flex-shrink: 0;
   touch-action: none;
   cursor: pointer;
+}
+
+.roll-scroll-rail {
+  display: none;
 }
 
 .arr-scroll-thumb {
@@ -606,8 +610,8 @@ body {
 }
 
 .mix-strip {
-  flex: 1 0 98px;
-  min-width: 98px;
+  flex: 1 0 106px;
+  min-width: 106px;
   min-height: 0;
   border-right: 1px solid var(--border);
   display: flex;
@@ -691,7 +695,9 @@ body {
 
 .mix-sends {
   display: flex;
-  gap: 4px;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
 }
 
 .mix-fader-area {
