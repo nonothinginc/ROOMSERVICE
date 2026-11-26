@@ -164,7 +164,7 @@ function renderList() {
     const box = document.createElement('div');
     box.className = 'lib-empty';
     const pct = imp.total ? Math.round((imp.done / imp.total) * 100) : 0;
-    box.innerHTML = `<div class="lib-progress"><i style="width:${pct}%"></i></div><div class="lib-imp-n">${imp.done} / ${imp.total}</div>`;
+    box.innerHTML = `<div class="lib-progress"><i style="width:${pct}%"></i></div><div class="lib-imp-n">${imp.pack && imp.pack !== '1/1' ? `PACK ${imp.pack}  ` : ''}${imp.done} / ${imp.total}</div>`;
     const cur = document.createElement('div');
     cur.className = 'lib-imp-file';
     cur.textContent = imp.current || imp.name;

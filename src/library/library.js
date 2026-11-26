@@ -94,6 +94,8 @@ export const library = {
     const zips = files.filter((f) => /\.zip$/i.test(f.name));
     const loose = files.filter((f) => AUDIO_EXT.test(f.name));
     const results = [];
+    // One progress state across every pack in this batch
+    this.batch = { packs: zips.length + (loose.length ? 1 : 0), index: 0 };
 
     for (const zip of zips) {
       const entries = listZipEntries(await zip.arrayBuffer()).filter((e) => AUDIO_EXT.test(e.name) && !JUNK.test(e.name));
@@ -113,6 +115,9 @@ export const library = {
       }));
       results.push(await this.ingest(name, items, ctx));
     }
+    this.batch = null;
+    libraryState.importing = null;
+    emit();
     return results;
   },
 
@@ -121,7 +126,14 @@ export const library = {
     // Re-importing a pack replaces it cleanly
     if (libraryState.packs.some((p) => p.id === packId)) await this.removePack(packId, false);
 
-    libraryState.importing = { name: packName, done: 0, total: items.length, current: '' };
+    if (this.batch) this.batch.index++;
+    libraryState.importing = {
+      name: packName,
+      done: 0,
+      total: items.length,
+      current: '',
+      pack: this.batch ? `${this.batch.index}/${this.batch.packs}` : ''
+    };
     emit();
     let bytesTotal = 0;
     let added = 0;
@@ -168,7 +180,7 @@ export const library = {
     libraryState.packs.push(pack);
     libraryState.samples.push(...metas);
     sortSamples();
-    libraryState.importing = null;
+    if (!this.batch) libraryState.importing = null;
     emit();
     return pack;
   },

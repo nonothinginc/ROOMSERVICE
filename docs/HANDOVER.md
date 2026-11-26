@@ -3,7 +3,7 @@
 **Last Updated:** 2026-11-26  
 **Latest Source Commit (`main`):** see `git log` (Skin v2 reskin, session 03)  
 **Latest Live Deploy (`gh-pages`):** Skin v2 at `https://nonothinginc.github.io/ROOMSERVICE/`, pre-reskin look at `/ROOMSERVICE/legacy/` (tag `skin-legacy-v1`)  
-**Service Worker Cache:** `roomservice-v12` ([public/sw.js](../public/sw.js))  
+**Service Worker Cache:** `roomservice-v13` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
