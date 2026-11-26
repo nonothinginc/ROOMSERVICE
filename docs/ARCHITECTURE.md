@@ -12,7 +12,7 @@ ROOMSERVICE/
 │   ├── samples/
 │   │   ├── 808/*.wav            # Authentic Roland TR-808 WAV kit (oramics/sampled)
 │   │   └── 909/*.wav            # Authentic Roland TR-909 WAV kit (oramics/sampled)
-│   └── sw.js                    # Offline cache ('roomservice-v7') & cache fallback
+│   └── sw.js                    # Offline cache ('roomservice-v8') & cache fallback
 ├── src/
 │   ├── main.js                  # 3-zone chassis bootstrap, modal router, autosave & 120fps loop
 │   ├── device-registry.js       # import.meta.glob('./devices/*.js', { eager: true }) auto-discovery (+ extendedParams)

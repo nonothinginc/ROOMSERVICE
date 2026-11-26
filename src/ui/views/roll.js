@@ -343,8 +343,8 @@ export function createRollView() {
     const sources = getDrumSources();
     const count = Math.max(1, sources.length);
     const availH = Math.max(60, gridHeight - RULER_H);
-    const dRowH = Math.max(20, Math.min(52, Math.floor((availH - 12) / count)));
-    const topY = RULER_H + Math.floor((availH - dRowH * count) / 2);
+    const dRowH = Math.max(16, Math.min(52, Math.floor((availH - 4) / count)));
+    const topY = RULER_H + Math.max(0, Math.floor((availH - dRowH * count) / 2));
     return { sources, rowH: dRowH, topY };
   }
 
@@ -1046,14 +1046,19 @@ export function createRollView() {
     gridCtx.font = '700 8.5px Geist Mono, monospace';
     gridCtx.fillText(`${pat?.length || 16}S`, 6, 12.5);
 
+    gridCtx.save();
+    gridCtx.beginPath();
+    gridCtx.rect(kw, 0, Math.max(0, w - kw), RULER_H);
+    gridCtx.clip();
     for (let s = 0; s < patLen; s += 4) {
       const rx = Math.round(kw + (s - scrollX) * stepW);
-      if (rx < kw - 24 || rx > w) continue;
+      if (rx < kw - 32 || rx > w) continue;
       const bar = Math.floor(s / 16) + 1;
       const beat = Math.floor((s % 16) / 4) + 1;
       gridCtx.fillStyle = beat === 1 ? ink : inkDim;
-      gridCtx.fillText(`${bar}.${beat}`, Math.max(kw + 2, rx + 3), 12.5);
+      gridCtx.fillText(`${bar}.${beat}`, rx + 3, 12.5);
     }
+    gridCtx.restore();
 
     const drumLayout = drumMode ? getDrumLayout(h) : null;
     const flashMap = drumMode ? engine.getDrumNode(st.selectedTrackId)?.getPadInfo?.()?.padFlashAt : null;
@@ -1180,6 +1185,11 @@ export function createRollView() {
       drawVerticalGridLines(RULER_H, h);
     }
 
+    gridCtx.save();
+    gridCtx.beginPath();
+    gridCtx.rect(kw, RULER_H, Math.max(0, w - kw), Math.max(0, h - RULER_H));
+    gridCtx.clip();
+
     // Ghost notes from ghostPatternId
     if (st.ghostPatternId && st.patterns[st.ghostPatternId]) {
       const gPat = st.patterns[st.ghostPatternId];
@@ -1190,7 +1200,7 @@ export function createRollView() {
       for (const gList of Object.values(gPat.notesByTrack)) {
         for (const gn of gList) {
           const box = getNoteRect(gn, kw, drumLayout);
-          if (!box || box.y < RULER_H - box.rh || box.y > h) continue;
+          if (!box || box.x + box.nw < kw || box.x > w || box.y < RULER_H - box.rh || box.y > h) continue;
           gridCtx.strokeRect(box.x + 1, box.y + 2, Math.max(6, box.nw - 2), box.rh - 4);
         }
       }
@@ -1201,7 +1211,7 @@ export function createRollView() {
     const notes = store.getActiveNotes();
     for (const n of notes) {
       const box = getNoteRect(n, kw, drumLayout);
-      if (!box || box.y < RULER_H - box.rh || box.y > h) continue;
+      if (!box || box.x + box.nw < kw || box.x > w || box.y < RULER_H - box.rh || box.y > h) continue;
 
       const x = box.x;
       const nw = Math.max(8, box.nw - 2);
@@ -1240,6 +1250,8 @@ export function createRollView() {
       gridCtx.lineWidth = 1;
       gridCtx.strokeRect(curBox.x + 0.5, curBox.y + 0.5, Math.max(8, curBox.nw) - 1, curBox.rh - 1);
     }
+
+    gridCtx.restore();
 
     // Playhead
     const playStep = st.currentStep % patLen;
