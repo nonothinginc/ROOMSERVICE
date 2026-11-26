@@ -65,6 +65,7 @@ class InputController {
     this.dpadRepeatAt = { UP: 0, DOWN: 0, LEFT: 0, RIGHT: 0 };
 
     this.keysDown = new Set();
+    this.selectMod = null;
     this.keyAHoldStart = 0;
     this.keyALongFired = false;
 
@@ -413,7 +414,8 @@ class InputController {
     const activeSt = store.getState();
     const rawOverlayType = activeSt.detailOverlay?.type;
     if (rawOverlayType === 'brickchord' || rawOverlayType === 'lead') {
-      if (justPressed(BTN.START)) {
+      // SELECT + START is reserved for JAM inside the Brickchord deck
+      if (justPressed(BTN.START) && !cur[BTN.SELECT]) {
         engine.togglePlay();
       }
       // Exit cleanly with SELECT + B so plain B stays usable as a music pad!
@@ -476,6 +478,15 @@ class InputController {
       engine.toggleRecord();
     }
 
+    // Plain SELECT: tap => 'SELECT' action; held => modifier for D-Pad (e.g. loop length in ARR)
+    if (justPressed(BTN.SELECT) && !l2 && !r2) {
+      this.selectMod = { used: false };
+    }
+    if (justReleased(BTN.SELECT) && this.selectMod) {
+      if (!this.selectMod.used) this.dispatch({ type: 'SELECT' });
+      this.selectMod = null;
+    }
+
     // L1 / R1 => Cycle Views
     if (justPressed(BTN.L1)) store.cycleView(-1);
     if (justPressed(BTN.R1)) store.cycleView(1);
@@ -518,6 +529,9 @@ class InputController {
       if (justPressed(idx)) {
         if (r2 && (dir === 'LEFT' || dir === 'RIGHT')) {
           engine.scrubStep(dir === 'LEFT' ? -1 : 1);
+        } else if (this.selectMod && cur[BTN.SELECT]) {
+          this.selectMod.used = true;
+          this.dispatch({ type: 'DPAD', dir, fine: l2, select: true });
         } else {
           this.dispatch({ type: 'DPAD', dir, fine: l2 });
         }
@@ -525,10 +539,12 @@ class InputController {
       } else if (cur[idx] && now >= this.dpadRepeatAt[dir]) {
         if (r2 && (dir === 'LEFT' || dir === 'RIGHT')) {
           engine.scrubStep(dir === 'LEFT' ? -1 : 1);
+        } else if (this.selectMod && cur[BTN.SELECT]) {
+          this.dispatch({ type: 'DPAD', dir, fine: l2, select: true });
         } else {
           this.dispatch({ type: 'DPAD', dir, fine: l2 });
         }
-        this.dpadRepeatAt[dir] = now + 75;
+        this.dpadRepeatAt[dir] = now + 160;
       }
     }
 

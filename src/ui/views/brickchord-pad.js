@@ -320,6 +320,12 @@ function updatePadLabels() {
   });
 }
 
+function revoiceLive(mods, bend) {
+  const chord = liveRefs?.node?.revoiceChord(mods, bend);
+  if (chord?.notes?.length && engine.isJamming()) engine.jamChordOn(chord.notes, 0.84);
+  return chord;
+}
+
 function triggerDegree(degree, fromTouch = false) {
   if (!liveRefs) return;
   const { node, trackId } = liveRefs;
@@ -333,7 +339,9 @@ function triggerDegree(degree, fromTouch = false) {
   if (fromTouch) liveRefs.touchHeldDegree = degree;
 
   const st = store.getState();
-  if (st.isPlaying && st.isRecording && chord?.notes?.length) {
+  if (engine.isJamming()) {
+    if (chord?.notes?.length) engine.jamChordOn(chord.notes, 0.86);
+  } else if (st.isPlaying && st.isRecording && chord?.notes?.length) {
     engine.recordChordToPattern(trackId, chord.notes, 4, 0.86, false);
   }
   updatePadLabels();
@@ -343,6 +351,7 @@ function releaseCurrentChord() {
   if (!liveRefs?.node) return;
   liveRefs.node.releaseChord(false);
   liveRefs.isSounding = liveRefs.node.getLiveState().latch;
+  if (!liveRefs.isSounding) engine.jamChordOff();
   if (!liveRefs.isSounding) liveRefs.activeDegree = null;
   updatePadLabels();
 }
@@ -360,6 +369,12 @@ export function handleBrickchordRawPad(pad) {
   const justPressed = (i) => buttons[i] && !prevButtons[i];
   const justReleased = (i) => !buttons[i] && prevButtons[i];
   const selectHeld = buttons[BTN.SELECT];
+
+  // SELECT + START: jam over the playlist loop
+  if (selectHeld && justPressed(BTN.START)) {
+    engine.startJam(liveRefs.trackId);
+    return;
+  }
 
   // SELECT combos: adjust key, scale, octave without playing chords
   if (selectHeld) {
@@ -401,6 +416,7 @@ export function handleBrickchordRawPad(pad) {
   if (justPressed(BTN.L2)) {
     const live = node.getLiveState();
     node.setLatch(!live.latch);
+    if (live.latch && !PAD_ORDER.some(({ btnIdx }) => buttons[btnIdx])) engine.jamChordOff();
     liveRefs.syncTopBar();
   }
 
@@ -448,7 +464,7 @@ export function handleBrickchordRawPad(pad) {
   if (!triggeredNew && (bendChanged || JSON.stringify(liveRefs.padMods) !== prevModStr)) {
     const live = node.getLiveState();
     if (live.active) {
-      node.revoiceChord(getEffectiveMods(), liveRefs.touchBend || liveRefs.padBend);
+      revoiceLive(getEffectiveMods(), liveRefs.touchBend || liveRefs.padBend);
     }
     updatePadLabels();
   }
@@ -466,6 +482,7 @@ export function tickBrickchordOverlay() {
   const st = store.getState();
   if (st.detailOverlay?.type !== 'brickchord') {
     liveRefs.node?.releaseChord?.(false);
+    if (engine.isJamming()) engine.stopJam(true);
     liveRefs = null;
     return;
   }
@@ -571,6 +588,12 @@ export function renderBrickchordOverlay(panelEl, trackId) {
     syncTopBar();
   };
 
+  const jamBtn = document.createElement('button');
+  jamBtn.className = 'ctx-chip jam-chip';
+  jamBtn.textContent = 'JAM';
+  jamBtn.title = 'Jam over the playlist loop [SELECT+START]';
+  jamBtn.onclick = () => engine.startJam(trackId);
+
   const stampBtn = document.createElement('button');
   stampBtn.className = 'ctx-chip solid';
   stampBtn.textContent = 'STAMP';
@@ -600,11 +623,12 @@ export function renderBrickchordOverlay(panelEl, trackId) {
   closeBtn.classList.add('icon-only');
   closeBtn.onclick = () => {
     engine.getBrickchordNode(trackId)?.releaseChord?.(true);
+    if (engine.isJamming()) engine.stopJam(true);
     st.detailOverlay = null;
     store.emit('overlay', null);
   };
 
-  hdrRight.append(bassBtn, latchBtn, recBtn, stampBtn, dspBtn, closeBtn);
+  hdrRight.append(bassBtn, latchBtn, jamBtn, recBtn, stampBtn, dspBtn, closeBtn);
   hdr.append(hdrLeft, hdrRight);
 
   // Patch & Style Segmented Strips
@@ -662,7 +686,37 @@ export function renderBrickchordOverlay(panelEl, trackId) {
   fxCanvas.width = 220;
   fxCanvas.height = 170;
 
-  stage.append(bendCanvas, hudCanvas, fxCanvas);
+  const hudWrap = document.createElement('div');
+  hudWrap.className = 'bc-hud-main bc-hud-wrap';
+  hudCanvas.classList.remove('bc-hud-main');
+  const jamLayer = document.createElement('div');
+  jamLayer.className = 'bc-jam';
+  hudWrap.append(hudCanvas, jamLayer);
+  stage.append(bendCanvas, hudWrap, fxCanvas);
+
+  function syncJam() {
+    const j = store.getState().jam;
+    jamBtn.classList.toggle('active', Boolean(j));
+    jamLayer.classList.toggle('on', Boolean(j));
+    if (!j) {
+      jamLayer.innerHTML = '';
+      return;
+    }
+    if (j.phase === 'count') {
+      jamLayer.innerHTML = `<div class="bc-jam-count">${j.count}</div>`;
+      return;
+    }
+    const cells = Array.from({ length: j.bars }, (_, i) => `<i class="${i < j.bar ? 'done' : i === j.bar ? 'now' : ''}"></i>`).join('');
+    jamLayer.innerHTML = `<div class="bc-jam-top"><span class="rec-dot"></span><span>TAKE ${j.take}</span><span class="dim">${j.takes ? `${j.takes} KEPT` : ''}</span></div><div class="bc-jam-bars">${cells}</div>`;
+  }
+  const unsubJam = store.subscribe((_, topic) => {
+    if (!jamLayer.isConnected) {
+      unsubJam?.();
+      return;
+    }
+    if (topic === 'jam') syncJam();
+  });
+  syncJam();
 
   // Touch-drag handlers for Bend Canvas (Left Virtual Stick)
   const updateBendFromPointer = (e) => {
@@ -677,7 +731,7 @@ export function renderBrickchordOverlay(panelEl, trackId) {
     if (nextBend !== liveRefs.touchBend) {
       liveRefs.touchBend = nextBend;
       if (liveRefs.node?.getLiveState().active) {
-        liveRefs.node.revoiceChord(getEffectiveMods(), liveRefs.touchBend || liveRefs.padBend);
+        revoiceLive(getEffectiveMods(), liveRefs.touchBend || liveRefs.padBend);
       }
       updatePadLabels();
     }
@@ -698,7 +752,7 @@ export function renderBrickchordOverlay(panelEl, trackId) {
     if (liveRefs.touchBend) {
       liveRefs.touchBend = null;
       if (liveRefs.node?.getLiveState().active) {
-        liveRefs.node.revoiceChord(getEffectiveMods(), liveRefs.padBend);
+        revoiceLive(getEffectiveMods(), liveRefs.padBend);
       }
       updatePadLabels();
     }
@@ -782,7 +836,7 @@ export function renderBrickchordOverlay(panelEl, trackId) {
       if (!liveRefs) return;
       liveRefs.touchMods[key] = !liveRefs.touchMods[key];
       if (liveRefs.node?.getLiveState().active) {
-        liveRefs.node.revoiceChord(getEffectiveMods(), liveRefs.touchBend || liveRefs.padBend);
+        revoiceLive(getEffectiveMods(), liveRefs.touchBend || liveRefs.padBend);
       }
       updatePadLabels();
     });

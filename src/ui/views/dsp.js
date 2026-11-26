@@ -916,13 +916,6 @@ export function createDspView() {
       const def = getDevice(slot.deviceId);
       if (!def) return;
 
-      if (slotIdx > 0) {
-        const arrow = document.createElement('div');
-        arrow.className = 'dsp-arrow';
-        arrow.textContent = '──▶';
-        chainScroll.appendChild(arrow);
-      }
-
       const card = document.createElement('div');
       card.className = `dsp-card ${st.selectedDeviceSlotIdx === slotIdx ? 'focused' : ''} ${slot.bypass ? 'bypassed' : ''}`;
       card.addEventListener('pointerdown', () => {
@@ -1158,10 +1151,6 @@ export function createDspView() {
       chainScroll.appendChild(card);
     });
 
-    const addArrow = document.createElement('div');
-    addArrow.className = 'dsp-arrow';
-    addArrow.textContent = '──▶';
-
     const addCard = document.createElement('button');
     addCard.className = 'dsp-add-card';
     addCard.textContent = '+ ADD';
@@ -1170,7 +1159,7 @@ export function createDspView() {
       store.emit('device-picker', true);
     };
 
-    chainScroll.append(addArrow, addCard);
+    chainScroll.append(addCard);
   }
 
   store.subscribe((_, topic) => {

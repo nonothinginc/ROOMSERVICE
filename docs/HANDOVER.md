@@ -3,7 +3,7 @@
 **Last Updated:** 2026-11-26  
 **Latest Source Commit (`main`):** see `git log` (Skin v2 reskin, session 03)  
 **Latest Live Deploy (`gh-pages`):** Skin v2 at `https://nonothinginc.github.io/ROOMSERVICE/`, pre-reskin look at `/ROOMSERVICE/legacy/` (tag `skin-legacy-v1`)  
-**Service Worker Cache:** `roomservice-v10` ([public/sw.js](../public/sw.js))  
+**Service Worker Cache:** `roomservice-v11` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -75,7 +75,8 @@ Every decision below came directly from user feedback and **must not be regresse
 
 ## 3. Open Items & Immediate Next Priorities
 
-- **Pending User Review:** Skin v2 reskin + ring-button fix (session 03). Compare against `/ROOMSERVICE/legacy/`.
+- **Pending User Review:** Skin v2 reskin + ring-button fix, playlist LOOP + >8-bar songs, playlist SAMPLE editor, Brickchord JAM (session 03). Compare look against `/ROOMSERVICE/legacy/`.
+- **Ideas not built yet:** JAM for LEAD deck and MPC pads; take comping (pick a take from the LAB back onto the loop); gamepad control inside the SAMPLE editor.
 - **Likely Next Follow-Ups:**
   1. Polish any mobile touch ergonomics / spacing quirks surfaced during phone testing (e.g., `MIX` pinned master width on sub-390px screens, `ARR` touch feel, or `MPC` pad editing on portrait phones).
   2. Code-split Tone.js / optional manual chunks in Vite if initial mobile load size (`564 kB` JS / `146 kB` gzip) needs trimming.

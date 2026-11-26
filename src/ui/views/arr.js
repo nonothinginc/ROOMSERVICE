@@ -1,7 +1,9 @@
 import { engine } from '../../audio/engine.js';
+import { input } from '../../input/gamepad.js';
 import { getDevice } from '../../device-registry.js';
-import { nextId, store } from '../../state/store.js';
+import { SONG_MAX_STEPS, getSongEnd, nextId, store } from '../../state/store.js';
 import { attachLongPress } from '../components/longpress.js';
+import { createRotary } from '../components/rotary.js';
 
 const WARP_MODES = ['BEATS', 'TONES', 'TEXTURE', 'RE-PITCH'];
 
@@ -55,30 +57,38 @@ export function createArrView() {
   let pendingTap = null;
   const activePointers = new Map();
 
-  const RULER_H = 22;
+  const RULER_H = 28;
   const DOUBLE_TAP_MS = 260;
 
   function getLaneHeaderW(w) {
     return w < 520 ? 74 : 112;
   }
 
+  /** Scrollable extent: song + 8 bars of runway (and the loop), capped at 64 bars. */
+  function getTimelineSteps() {
+    const st = store.getState();
+    const end = Math.max(getSongEnd(st) + 128, st.loop?.end ? st.loop.end + 64 : 0, 256);
+    return Math.min(SONG_MAX_STEPS, Math.ceil(end / 16) * 16);
+  }
+
   function getMaxScrollX(w) {
     const headerW = getLaneHeaderW(w);
     const visSteps = Math.max(8, (w - headerW) / Math.max(4, stepW));
-    return Math.max(0, 128 - visSteps);
+    return Math.max(0, getTimelineSteps() - visSteps);
   }
 
   function updateArrScrollRail(w) {
     const headerW = getLaneHeaderW(w);
     const visSteps = Math.max(8, (w - headerW) / Math.max(4, stepW));
-    const maxS = Math.max(0, 128 - visSteps);
+    const total = getTimelineSteps();
+    const maxS = Math.max(0, total - visSteps);
     if (maxS <= 0.5) {
       scrollThumb.style.width = '100%';
       scrollThumb.style.left = '0%';
       return;
     }
     scrollX = Math.max(0, Math.min(maxS, scrollX));
-    const thumbPct = Math.max(12, Math.min(100, (visSteps / 128) * 100));
+    const thumbPct = Math.max(10, Math.min(100, (visSteps / total) * 100));
     const leftPct = (scrollX / maxS) * (100 - thumbPct);
     scrollThumb.style.width = `${thumbPct}%`;
     scrollThumb.style.left = `${leftPct}%`;
@@ -99,7 +109,7 @@ export function createArrView() {
   scrollRail.addEventListener('pointermove', (e) => {
     if (!railDrag) return;
     const dx = e.clientX - railDrag.startX;
-    scrollX = Math.max(0, Math.min(railDrag.maxS, railDrag.startScroll + (dx / railDrag.railW) * 128));
+    scrollX = Math.max(0, Math.min(railDrag.maxS, railDrag.startScroll + (dx / railDrag.railW) * getTimelineSteps()));
   });
   const endRailDrag = () => {
     railDrag = null;
@@ -108,6 +118,29 @@ export function createArrView() {
   };
   scrollRail.addEventListener('pointerup', endRailDrag);
   scrollRail.addEventListener('pointercancel', endRailDrag);
+
+  /** Full sample length in timeline steps (tempo-independent under warp). */
+  function getAudioSteps(clip) {
+    const ac = store.getState().audioClips[clip.refId];
+    if (!ac) return clip.lengthSteps;
+    return (ac.duration * Math.max(40, ac.detectedBpm || 128)) / 15;
+  }
+
+  function stepAtX(x, headerW) {
+    return scrollX + (x - headerW) / stepW;
+  }
+
+  function loopEdgeHit(x, headerW) {
+    const lp = store.getState().loop;
+    if (!lp?.on) return null;
+    const xs = headerW + (lp.start - scrollX) * stepW;
+    const xe = headerW + (lp.end - scrollX) * stepW;
+    const grab = 18;
+    if (Math.abs(x - xe) <= grab) return 'loop-end';
+    if (Math.abs(x - xs) <= grab) return 'loop-start';
+    if (x > xs && x < xe) return 'loop-move';
+    return null;
+  }
 
   function clearPendingTap() {
     if (pendingTap) {
@@ -147,9 +180,33 @@ export function createArrView() {
       st.detailOverlay = { type: 'auto', autoId: clip.refId };
       store.emit('overlay', st.detailOverlay);
     } else if (clip.kind === 'audio') {
-      st.detailOverlay = { type: 'audio', audioId: clip.refId };
+      st.detailOverlay = { type: 'audio', audioId: clip.refId, clipId: clip.id };
       store.emit('overlay', st.detailOverlay);
     }
+  }
+
+  /** Split an arr clip at an absolute step; audio halves keep their place in the sample. */
+  function splitClipAt(clip, atStep) {
+    const st = store.getState();
+    const cut = Math.round(atStep);
+    if (cut <= clip.startStep || cut >= clip.startStep + clip.lengthSteps) return null;
+    store.pushHistory(`SPLIT ${clip.refId}`);
+    const leftLen = cut - clip.startStep;
+    const right = {
+      ...clip,
+      id: nextId('clip'),
+      startStep: cut,
+      lengthSteps: clip.lengthSteps - leftLen,
+      fadeInSteps: 0
+    };
+    // offsetSteps counts in playback direction (reverse included), so the right half continues where the left stops
+    if (clip.kind === 'audio') right.offsetSteps = (clip.offsetSteps || 0) + leftLen;
+    clip.lengthSteps = leftLen;
+    clip.fadeOutSteps = 0;
+    st.arrClips.push(right);
+    st.selectedArrClipId = right.id;
+    store.emit('arr');
+    return right;
   }
 
   attachLongPress(
@@ -168,7 +225,14 @@ export function createArrView() {
       dragClip = null;
       dragAction = null;
 
-      if (y < RULER_H) return;
+      if (y < RULER_H) {
+        if (x < headerW) return;
+        const bar = Math.max(0, Math.floor(stepAtX(x, headerW) / 16));
+        store.setLoop({ on: true, start: bar * 16, end: bar * 16 + 16 }, 'LOOP');
+        dragAction = { type: 'loop-draw', anchorBar: bar, headerW, startX: e.clientX, moved: true };
+        navigator.vibrate?.(8);
+        return;
+      }
 
       if (x < headerW) {
         st.detailOverlay = { type: 'lane-label', lane };
@@ -330,6 +394,25 @@ export function createArrView() {
       dock.appendChild(clipMenuBtn);
     }
 
+    const loopBtn = document.createElement('button');
+    loopBtn.className = `ctx-chip loop-chip ${st.loop?.on ? 'active' : ''}`;
+    loopBtn.title = 'Loop (long-press the ruler to draw, drag its edges to resize)';
+    loopBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M3 9.5V8a3 3 0 0 1 3-3h7"/><path d="m11 3 2 2-2 2"/><path d="M13 6.5V8a3 3 0 0 1-3 3H3"/><path d="m5 13-2-2 2-2"/></svg>';
+    const loopRange = document.createElement('span');
+    loopRange.className = 'chip-sub';
+    loopRange.textContent = `${st.loop.start / 16 + 1}–${st.loop.end / 16}`;
+    loopBtn.appendChild(loopRange);
+    loopBtn.onclick = () => {
+      store.setLoop({ on: !st.loop.on });
+      if (st.loop.on) {
+        // Bring the loop into view when switching it on
+        const w = canvasWrap.clientWidth || 640;
+        const vis = (w - getLaneHeaderW(w)) / Math.max(4, stepW);
+        if (st.loop.start < scrollX || st.loop.start > scrollX + vis * 0.8) scrollX = Math.max(0, st.loop.start - 4);
+      }
+    };
+    dock.appendChild(loopBtn);
+
     const followBtn = document.createElement('button');
     followBtn.className = `ctx-chip ${st.arrFollow ? 'active' : ''}`;
     followBtn.textContent = 'FOLLOW';
@@ -355,7 +438,7 @@ export function createArrView() {
   }
 
   store.subscribe((_, topic) => {
-    if (['arr', 'pattern', 'transport', 'view', 'history-restore'].includes(topic)) renderBars();
+    if (['arr', 'pattern', 'transport', 'view', 'history-restore', 'loop'].includes(topic)) renderBars();
   });
   renderBars();
 
@@ -389,7 +472,18 @@ export function createArrView() {
 
     // Top Ruler tap/drag -> pan or scrub playhead
     if (y < RULER_H && x >= headerW) {
-      dragAction = { type: 'ruler', startX: e.clientX, startScroll: scrollX, moved: false, localX: x, headerW, w: rect.width };
+      const loopHit = loopEdgeHit(x, headerW);
+      dragAction = {
+        type: 'ruler',
+        loopHit,
+        startX: e.clientX,
+        startScroll: scrollX,
+        moved: false,
+        localX: x,
+        headerW,
+        w: rect.width,
+        origLoop: { ...st.loop }
+      };
       canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -402,7 +496,7 @@ export function createArrView() {
     }
     if (x < headerW) return;
     const lane = Math.max(0, Math.min(7, Math.floor(Math.max(0, y - RULER_H) / laneH)));
-    const step = Math.max(0, Math.min(124, Math.floor((scrollX + (x - headerW) / stepW) / 4) * 4));
+    const step = Math.max(0, Math.min(SONG_MAX_STEPS - 4, Math.floor((scrollX + (x - headerW) / stepW) / 4) * 4));
     cursorLane = lane;
     cursorStep = step;
 
@@ -422,18 +516,22 @@ export function createArrView() {
       st.selectedArrClipId = hit.id;
       const cx = headerW + (hit.startStep - scrollX) * stepW;
       const cw = Math.max(12, hit.lengthSteps * stepW);
-      const isResize = x >= cx + cw - 12;
+      // Edge grab zones scale with clip width so short clips stay movable
+      const edge = Math.min(16, cw * 0.28);
+      const isResize = x >= cx + cw - edge;
+      const isTrimStart = hit.kind === 'audio' && x <= cx + edge;
       store.beginGesture(`EDIT ${hit.refId}`);
       dragClip = {
         clip: hit,
         isNew: false,
         moved: false,
-        mode: isResize ? 'resize' : 'move',
+        mode: isResize ? 'resize' : isTrimStart ? 'trim-start' : 'move',
         startX: e.clientX,
         startY: e.clientY,
         origStart: hit.startStep,
         origLane: hit.lane,
-        origLen: hit.lengthSteps
+        origLen: hit.lengthSteps,
+        origOffset: hit.offsetSteps || 0
       };
       canvas.setPointerCapture(e.pointerId);
       renderBars();
@@ -467,6 +565,38 @@ export function createArrView() {
         if (!dragAction.moved && Math.hypot(dx, dy) > 8) dragAction.moved = true;
         return;
       }
+      if (dragAction.type === 'loop-draw') {
+        const rect = canvas.getBoundingClientRect();
+        const bar = Math.max(0, Math.floor(stepAtX(e.clientX - rect.left, dragAction.headerW) / 16));
+        const a = dragAction.anchorBar;
+        const st = store.getState();
+        st.loop = { on: true, start: Math.min(a, bar) * 16, end: (Math.max(a, bar) + 1) * 16 };
+        store.emit('loop', st.loop);
+        return;
+      }
+      if (dragAction.type === 'ruler' && dragAction.loopHit) {
+        if (!dragAction.moved && Math.abs(dx) > 6) {
+          dragAction.moved = true;
+          store.pushHistory('LOOP');
+        }
+        if (!dragAction.moved) return;
+        const st = store.getState();
+        const o = dragAction.origLoop;
+        const dBars = Math.round(dx / stepW / 16) * 16;
+        let { start, end } = o;
+        if (dragAction.loopHit === 'loop-start') start = Math.max(0, Math.min(o.end - 16, o.start + dBars));
+        else if (dragAction.loopHit === 'loop-end') end = Math.max(o.start + 16, Math.min(SONG_MAX_STEPS, o.end + dBars));
+        else {
+          const shift = Math.max(-o.start, Math.min(SONG_MAX_STEPS - o.end, dBars));
+          start = o.start + shift;
+          end = o.end + shift;
+        }
+        if (start !== st.loop.start || end !== st.loop.end) {
+          st.loop = { ...st.loop, start, end };
+          store.emit('loop', st.loop);
+        }
+        return;
+      }
       if (!dragAction.moved && Math.hypot(dx, dy) > 6) {
         dragAction.moved = true;
         isUserPanning = true;
@@ -484,15 +614,29 @@ export function createArrView() {
     if (!dragClip.moved && Math.hypot(dx, dy) <= 14) return;
     dragClip.moved = true;
     clearPendingTap();
-    const dSteps = Math.round(dx / stepW / 4) * 4;
+    const isAudio = dragClip.clip.kind === 'audio';
+    // Audio trims snap to 1/16, everything else to beats
+    const dSteps = isAudio && dragClip.mode !== 'move' ? Math.round(dx / stepW) : Math.round(dx / stepW / 4) * 4;
     if (dragClip.mode === 'resize') {
-      const nextLen = Math.max(4, Math.min(128 - dragClip.clip.startStep, dragClip.origLen + dSteps));
+      const minLen = isAudio ? 1 : 4;
+      const maxLen = isAudio
+        ? Math.max(1, Math.floor(getAudioSteps(dragClip.clip) - (dragClip.clip.offsetSteps || 0)))
+        : SONG_MAX_STEPS - dragClip.clip.startStep;
+      const nextLen = Math.max(minLen, Math.min(maxLen, SONG_MAX_STEPS - dragClip.clip.startStep, dragClip.origLen + dSteps));
       if (nextLen !== dragClip.clip.lengthSteps) {
         dragClip.clip.lengthSteps = nextLen;
         store.markGestureDirty();
       }
+    } else if (dragClip.mode === 'trim-start') {
+      const d = Math.max(-dragClip.origOffset, -dragClip.origStart, Math.min(dragClip.origLen - 1, dSteps));
+      if (dragClip.clip.startStep !== dragClip.origStart + d) {
+        dragClip.clip.startStep = dragClip.origStart + d;
+        dragClip.clip.lengthSteps = dragClip.origLen - d;
+        dragClip.clip.offsetSteps = dragClip.origOffset + d;
+        store.markGestureDirty();
+      }
     } else {
-      const nextStart = Math.max(0, Math.min(128 - dragClip.clip.lengthSteps, dragClip.origStart + dSteps));
+      const nextStart = Math.max(0, Math.min(SONG_MAX_STEPS - dragClip.clip.lengthSteps, dragClip.origStart + dSteps));
       const nextLane = Math.max(0, Math.min(7, dragClip.origLane + Math.round(dy / laneH)));
       if (nextStart !== dragClip.clip.startStep || nextLane !== dragClip.clip.lane) {
         dragClip.clip.startStep = nextStart;
@@ -515,7 +659,7 @@ export function createArrView() {
         store.emit('overlay', st.detailOverlay);
       } else if (finishedAction.type === 'ruler' && !finishedAction.moved) {
         const st = store.getState();
-        const targetStep = Math.max(0, Math.min(127, Math.round(scrollX + (finishedAction.localX - finishedAction.headerW) / stepW)));
+        const targetStep = Math.max(0, Math.min(SONG_MAX_STEPS - 1, Math.round(scrollX + (finishedAction.localX - finishedAction.headerW) / stepW)));
         st.currentStep = targetStep;
         store.emit('step', targetStep);
       } else if (finishedAction.type === 'empty' && !finishedAction.moved) {
@@ -590,11 +734,24 @@ export function createArrView() {
     const st = store.getState();
     if (st.view !== 'ARR' || st.detailOverlay) return;
 
+    if (action.type === 'SELECT') {
+      store.setLoop({ on: !st.loop.on });
+      return;
+    }
+    if (action.type === 'DPAD' && action.select) {
+      // SELECT + ←/→ resizes the loop end, SELECT + ↑/↓ slides the whole loop, one bar at a time
+      const lp = st.loop;
+      if (action.dir === 'LEFT') store.setLoop({ on: true, end: Math.max(lp.start + 16, lp.end - 16) });
+      if (action.dir === 'RIGHT') store.setLoop({ on: true, end: lp.end + 16 });
+      if (action.dir === 'UP' && lp.start >= 16) store.setLoop({ on: true, start: lp.start - 16, end: lp.end - 16 });
+      if (action.dir === 'DOWN') store.setLoop({ on: true, start: lp.start + 16, end: lp.end + 16 });
+      return;
+    }
     if (action.type === 'DPAD') {
       if (action.dir === 'UP') cursorLane = Math.max(0, cursorLane - 1);
       if (action.dir === 'DOWN') cursorLane = Math.min(7, cursorLane + 1);
       if (action.dir === 'LEFT') cursorStep = Math.max(0, cursorStep - 4);
-      if (action.dir === 'RIGHT') cursorStep = Math.min(124, cursorStep + 4);
+      if (action.dir === 'RIGHT') cursorStep = Math.min(SONG_MAX_STEPS - 4, cursorStep + 4);
     } else if (action.type === 'A_TAP') {
       const hit = st.arrClips.find(
         (c) => c.lane === cursorLane && cursorStep >= c.startStep && cursorStep < c.startStep + c.lengthSteps
@@ -636,7 +793,7 @@ export function createArrView() {
     } else if (action.type === 'Y') {
       store.createAutomationClip(st.selectedTrackId, 0, 'cutoff');
     } else if (action.type === 'STICKS') {
-      if (action.lx) scrollX = Math.max(0, Math.min(96, scrollX + action.lx * 0.8));
+      if (action.lx) scrollX = Math.max(0, Math.min(getMaxScrollX(canvasWrap.clientWidth || 640), scrollX + action.lx * 0.8));
     }
   }
 
@@ -657,14 +814,20 @@ export function createArrView() {
     const accent = styles.getPropertyValue('--accent').trim();
     const gridSub = styles.getPropertyValue('--grid-sub').trim();
     const gridBeat = styles.getPropertyValue('--grid-beat').trim();
+    const fill = styles.getPropertyValue('--fill').trim();
+    const fillStrong = styles.getPropertyValue('--fill-strong').trim();
+    const inkFaint = styles.getPropertyValue('--ink-faint').trim();
+    const clipFill = styles.getPropertyValue('--clip').trim() || surfaceElev;
+    const clipSel = styles.getPropertyValue('--clip-sel').trim() || surfaceElev;
 
     const headerW = getLaneHeaderW(w);
     laneH = Math.max(32, Math.floor((h - RULER_H) / 8));
     stepW = Math.max(7, (w - headerW) / (w < 680 ? 48 : 80));
 
     const visSteps = Math.max(8, (w - headerW) / stepW);
-    const maxS = Math.max(0, 128 - visSteps);
-    const playStep = st.playMode === 'SONG' ? st.currentStep % 128 : 0;
+    const timelineSteps = getTimelineSteps();
+    const maxS = Math.max(0, timelineSteps - visSteps);
+    const playStep = st.playMode === 'SONG' ? st.currentStep : 0;
 
     if (st.isPlaying && st.playMode === 'SONG' && st.arrFollow && !isUserPanning && !dragClip) {
       if (playStep < scrollX + visSteps * 0.12) {
@@ -730,7 +893,9 @@ export function createArrView() {
     ctx.stroke();
 
     // Bar markers (every 16 steps = 1 bar)
-    for (let s = 0; s <= 128; s += 4) {
+    const firstS = Math.max(0, Math.floor(scrollX / 4) * 4);
+    const lastS = Math.min(timelineSteps, Math.ceil((scrollX + visSteps) / 4) * 4);
+    for (let s = firstS; s <= lastS; s += 4) {
       const x = Math.round(headerW + (s - scrollX) * stepW) + 0.5;
       if (x < headerW || x > w) continue;
       ctx.strokeStyle = s % 16 === 0 ? gridBeat : gridSub;
@@ -738,10 +903,42 @@ export function createArrView() {
       ctx.moveTo(x, s % 16 === 0 ? 4 : RULER_H);
       ctx.lineTo(x, h);
       ctx.stroke();
-      if (s % 16 === 0 && s < 128) {
+      if (s % 16 === 0 && s < timelineSteps) {
         ctx.fillStyle = inkDim;
-        ctx.font = '600 9px Geist Mono, monospace';
-        ctx.fillText(`B${s / 16 + 1}`, x + 4, 14);
+        ctx.font = '500 9px Geist Mono, monospace';
+        ctx.fillText(`${s / 16 + 1}`, x + 5, 15);
+      }
+    }
+
+    // Loop brace: band in the ruler, hairlines through the lanes
+    const lp = st.loop;
+    if (lp) {
+      const lx0 = headerW + (lp.start - scrollX) * stepW;
+      const lx1 = headerW + (lp.end - scrollX) * stepW;
+      const bx0 = Math.max(headerW, lx0);
+      const bx1 = Math.min(w, lx1);
+      if (bx1 > bx0) {
+        if (lp.on) {
+          ctx.fillStyle = fillStrong;
+          ctx.fillRect(bx0, 0, bx1 - bx0, RULER_H);
+          ctx.fillStyle = ink;
+          ctx.fillRect(bx0, RULER_H - 3, bx1 - bx0, 3);
+          ctx.fillStyle = gridSub;
+          ctx.fillRect(bx0, RULER_H, bx1 - bx0, h - RULER_H);
+        } else {
+          ctx.fillStyle = inkFaint;
+          ctx.fillRect(bx0, RULER_H - 2, bx1 - bx0, 2);
+        }
+      }
+      if (lp.on) {
+        ctx.fillStyle = ink;
+        for (const ex of [lx0, lx1]) {
+          if (ex < headerW - 1 || ex > w + 1) continue;
+          ctx.fillRect(Math.round(ex) - 1, 4, 2, RULER_H - 4);
+          ctx.fillStyle = inkFaint;
+          ctx.fillRect(Math.round(ex), RULER_H, 1, h - RULER_H);
+          ctx.fillStyle = ink;
+        }
       }
     }
 
@@ -756,15 +953,17 @@ export function createArrView() {
       const ch = laneH - 8;
       const isSel = st.selectedArrClipId === clip.id;
 
-      ctx.fillStyle = surfaceElev;
+      ctx.fillStyle = isSel ? clipSel : clipFill;
       ctx.beginPath();
-      ctx.roundRect(drawX, y, drawW, ch, 5);
+      ctx.roundRect(drawX, y, drawW, ch, 3);
       ctx.fill();
-      ctx.strokeStyle = isSel ? accent : borderStrong;
-      ctx.lineWidth = isSel ? 1.5 : 1;
-      ctx.beginPath();
-      ctx.roundRect(drawX + 0.5, y + 0.5, drawW, ch, 5);
-      ctx.stroke();
+      if (isSel) {
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.roundRect(drawX + 0.5, y + 0.5, drawW - 1, ch - 1, 3);
+        ctx.stroke();
+      }
 
       const clipLabel =
         clip.name ||
@@ -781,8 +980,8 @@ export function createArrView() {
       ctx.beginPath();
       ctx.rect(drawX + 3, y + 1, Math.max(0, drawW - 6), ch - 2);
       ctx.clip();
-      ctx.fillStyle = isSel ? accent : ink;
-      ctx.font = '600 10px Geist Mono, monospace';
+      ctx.fillStyle = ink;
+      ctx.font = '500 10px Geist Mono, monospace';
       ctx.fillText(fullTag, drawX + 6, y + 12);
 
       if (clip.kind === 'pattern') {
@@ -798,13 +997,46 @@ export function createArrView() {
         }
       } else if (clip.kind === 'audio') {
         const ac = st.audioClips[clip.refId];
-        if (ac?.peaks) {
-          ctx.fillStyle = inkDim;
+        if (ac?.peaks?.length) {
+          // Only the trimmed window of the sample, in playback direction, scaled by clip gain
+          const total = getAudioSteps(clip);
+          const off = clip.offsetSteps || 0;
+          const gainLin = Math.min(2, Math.pow(10, (clip.gainDb || 0) / 20));
+          const n = ac.peaks.length;
           const midY = y + ch * 0.6;
-          for (let i = 0; i < ac.peaks.length; i++) {
-            const px = x + 4 + (i / ac.peaks.length) * (cw - 8);
-            const ph = ac.peaks[i] * (ch * 0.35);
-            ctx.fillRect(px, midY - ph, 1, ph * 2);
+          const amp = ch * 0.33 * gainLin;
+          ctx.fillStyle = inkDim;
+          const cols = Math.max(1, Math.floor(cw / 2));
+          for (let c = 0; c < cols; c++) {
+            const stepPos = off + (c / cols) * clip.lengthSteps;
+            let idx = Math.floor((stepPos / total) * n);
+            if (clip.reverse) idx = n - 1 - idx;
+            if (idx < 0 || idx >= n) continue;
+            const ph = Math.max(0.5, Math.min(ch * 0.4, ac.peaks[idx] * amp));
+            ctx.fillRect(x + c * 2, midY - ph, 1, ph * 2);
+          }
+          // Fade ramps
+          const fi = (clip.fadeInSteps || 0) * stepW;
+          const fo = (clip.fadeOutSteps || 0) * stepW;
+          ctx.strokeStyle = ink;
+          ctx.lineWidth = 1;
+          if (fi > 1) {
+            ctx.beginPath();
+            ctx.moveTo(x, y + ch);
+            ctx.lineTo(x + fi, y + 16);
+            ctx.stroke();
+          }
+          if (fo > 1) {
+            ctx.beginPath();
+            ctx.moveTo(x + cw - fo, y + 16);
+            ctx.lineTo(x + cw, y + ch);
+            ctx.stroke();
+          }
+          if (isSel) {
+            // Trim grips
+            ctx.fillStyle = ink;
+            ctx.fillRect(x + 1, y + ch / 2 - 7, 2, 14);
+            ctx.fillRect(x + cw - 3, y + ch / 2 - 7, 2, 14);
           }
         }
       } else if (clip.kind === 'auto') {
@@ -825,12 +1057,14 @@ export function createArrView() {
       ctx.restore();
     }
 
-    // D-Pad cursor
+    // D-Pad cursor: only when a hardware pad is connected (otherwise it reads as a phantom clip)
     const curX = headerW + (cursorStep - scrollX) * stepW;
     const curY = RULER_H + cursorLane * laneH;
-    if (curX >= headerW && curX < w) {
+    if (input.getGamepadState().connected && curX >= headerW && curX < w) {
+      ctx.setLineDash([3, 3]);
       ctx.strokeStyle = borderStrong;
       ctx.strokeRect(curX + 0.5, curY + 0.5, stepW * 4, laneH);
+      ctx.setLineDash([]);
     }
 
     // Song playhead
@@ -1000,62 +1234,7 @@ export function createArrView() {
     }
 
     if (ov.type === 'audio') {
-      const ac = st.audioClips[ov.audioId];
-      hdr.innerHTML = `<span>WARP INSPECTOR <i class="oh-sub">${ac.id} (${ac.name})</i></span>`;
-      hdr.appendChild(closeBtn);
-      const body = document.createElement('div');
-      body.className = 'overlay-body';
-
-      const info = document.createElement('div');
-      info.className = 'telemetry-grid';
-      info.innerHTML = `
-        <div class="tel-cell"><span class="k">DETECTED BPM</span><span class="v">${ac.detectedBpm}</span></div>
-        <div class="tel-cell"><span class="k">PROJECT BPM</span><span class="v">${st.bpm}</span></div>
-        <div class="tel-cell"><span class="k">TRANSIENTS</span><span class="v">${ac.transients.length}</span></div>
-      `;
-
-      const modes = document.createElement('div');
-      modes.style.display = 'flex';
-      modes.style.gap = '6px';
-      WARP_MODES.forEach((m) => {
-        const b = document.createElement('button');
-        b.className = `ctx-chip ${ac.warpMode === m ? 'active' : ''}`;
-        b.textContent = m;
-        b.onclick = () => {
-          ac.warpMode = m;
-          modes.querySelectorAll('.ctx-chip').forEach((c) => c.classList.toggle('active', c.textContent === m));
-          renderBars();
-        };
-        modes.appendChild(b);
-      });
-
-      const wCanvas = document.createElement('canvas');
-      wCanvas.width = 960;
-      wCanvas.height = 240;
-      wCanvas.style.width = '100%';
-      wCanvas.style.height = '240px';
-      wCanvas.style.border = '1px solid var(--border)';
-      const wctx = wCanvas.getContext('2d');
-      const styles = getComputedStyle(document.documentElement);
-      wctx.fillStyle = styles.getPropertyValue('--bg').trim();
-      wctx.fillRect(0, 0, wCanvas.width, wCanvas.height);
-      wctx.fillStyle = styles.getPropertyValue('--ink').trim();
-      ac.peaks.forEach((pk, i) => {
-        const x = (i / ac.peaks.length) * wCanvas.width;
-        const ph = pk * 100;
-        wctx.fillRect(x, 120 - ph, 3, ph * 2);
-      });
-      wctx.strokeStyle = styles.getPropertyValue('--accent').trim();
-      ac.transients.forEach((tr) => {
-        const x = (tr / Math.max(0.1, ac.duration)) * wCanvas.width;
-        wctx.beginPath();
-        wctx.moveTo(x, 0);
-        wctx.lineTo(x, 240);
-        wctx.stroke();
-      });
-
-      body.append(info, modes, wCanvas);
-      panelEl.append(hdr, body);
+      renderSampleEditor(panelEl, hdr, closeBtn, ov);
       return;
     }
 
@@ -1071,6 +1250,303 @@ export function createArrView() {
       </div>
     `;
     panelEl.append(hdr, body);
+  }
+
+
+  /**
+   * Sample editor for one playlist placement of an audio clip.
+   * Waveform shows the whole sample; the clip's window is bright. Drag the window edges to trim,
+   * the top grips to fade, the window body to slip the audio under the clip.
+   */
+  function renderSampleEditor(panelEl, hdr, closeBtn, ov) {
+    const st = store.getState();
+    const ac = st.audioClips[ov.audioId];
+    const clip = st.arrClips.find((c) => c.id === ov.clipId) || st.arrClips.find((c) => c.kind === 'audio' && c.refId === ov.audioId);
+    if (!ac || !clip) {
+      hdr.innerHTML = '<span>SAMPLE</span>';
+      hdr.appendChild(closeBtn);
+      panelEl.append(hdr);
+      return;
+    }
+
+    const title = document.createElement('span');
+    title.textContent = 'SAMPLE ';
+    const sub = document.createElement('i');
+    sub.className = 'oh-sub';
+    sub.textContent = ac.name || ac.id;
+    title.appendChild(sub);
+
+    const actions = document.createElement('div');
+    actions.className = 'oh-actions';
+    const playBtn = document.createElement('button');
+    playBtn.className = 'ctx-chip icon-only';
+    playBtn.title = 'Preview clip';
+    const icoPlay = '<svg class="ico" viewBox="0 0 16 16"><path d="M5 3.2v9.6c0 .4.4.6.7.4l7.2-4.8a.5.5 0 0 0 0-.8L5.7 2.8c-.3-.2-.7 0-.7.4z" fill="currentColor" stroke="none"/></svg>';
+    const icoStop = '<svg class="ico" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" stroke="none"/></svg>';
+    playBtn.innerHTML = icoPlay;
+    let previewTimer = null;
+    playBtn.onclick = () => {
+      engine.unlock();
+      engine.previewArrClip(clip);
+      clearTimeout(previewTimer);
+      const on = engine.isPreviewingClip();
+      playBtn.innerHTML = on ? icoStop : icoPlay;
+      if (on) {
+        const sec = clip.lengthSteps * (15 / store.getState().bpm) + 0.1;
+        previewTimer = setTimeout(() => {
+          if (playBtn.isConnected) playBtn.innerHTML = engine.isPreviewingClip() ? icoStop : icoPlay;
+        }, sec * 1000);
+      }
+    };
+    actions.append(playBtn, closeBtn);
+    hdr.innerHTML = '';
+    hdr.append(title, actions);
+
+    const body = document.createElement('div');
+    body.className = 'overlay-body smp-body';
+
+    const wave = document.createElement('canvas');
+    wave.className = 'smp-wave';
+    const wctx = wave.getContext('2d');
+
+    const total = () => getAudioSteps(clip);
+    const geom = () => {
+      const r = wave.getBoundingClientRect();
+      const pad = 10;
+      const W = Math.max(40, r.width - pad * 2);
+      const sx = (steps) => pad + (steps / total()) * W;
+      return { r, pad, W, sx, toSteps: (px) => ((px - pad) / W) * total() };
+    };
+
+    function draw() {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const r = wave.getBoundingClientRect();
+      if (r.width < 10) return;
+      if (wave.width !== Math.round(r.width * dpr) || wave.height !== Math.round(r.height * dpr)) {
+        wave.width = Math.round(r.width * dpr);
+        wave.height = Math.round(r.height * dpr);
+      }
+      const cs = getComputedStyle(document.documentElement);
+      const c = (v) => cs.getPropertyValue(v).trim();
+      const w = r.width;
+      const h = r.height;
+      const { sx } = geom();
+      wctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      wctx.fillStyle = c('--surface');
+      wctx.fillRect(0, 0, w, h);
+
+      // Beat grid
+      const tot = total();
+      for (let b = 0; b <= tot; b += 4) {
+        wctx.fillStyle = b % 16 === 0 ? c('--grid-beat') : c('--grid-sub');
+        wctx.fillRect(Math.round(sx(b)), 0, 1, h);
+      }
+
+      const off = clip.offsetSteps || 0;
+      const x0 = sx(off);
+      const x1 = sx(off + clip.lengthSteps);
+      const n = ac.peaks?.length || 0;
+      const mid = h * 0.56;
+      const gainLin = Math.min(2, Math.pow(10, (clip.gainDb || 0) / 20));
+      for (let px = 10; px < w - 10; px += 2) {
+        const stepPos = geom().toSteps(px);
+        let idx = Math.floor((stepPos / tot) * n);
+        if (clip.reverse) idx = n - 1 - idx;
+        if (idx < 0 || idx >= n) continue;
+        const inside = px >= x0 && px <= x1;
+        const ph = Math.max(0.5, Math.min(h * 0.4, ac.peaks[idx] * h * 0.36 * (inside ? gainLin : 1)));
+        wctx.fillStyle = inside ? c('--ink') : c('--ink-faint');
+        wctx.fillRect(px, mid - ph, 1, ph * 2);
+      }
+
+      // Window frame + grips
+      wctx.fillStyle = c('--ink');
+      wctx.fillRect(Math.round(x0) - 1, 0, 2, h);
+      wctx.fillRect(Math.round(x1) - 1, 0, 2, h);
+      wctx.fillRect(Math.round(x0) - 1, h - 22, 8, 22);
+      wctx.fillRect(Math.round(x1) - 7, h - 22, 8, 22);
+
+      // Fades
+      const fi = sx(off + (clip.fadeInSteps || 0)) - x0;
+      const fo = x1 - sx(off + clip.lengthSteps - (clip.fadeOutSteps || 0));
+      wctx.strokeStyle = c('--ink');
+      wctx.lineWidth = 1;
+      wctx.beginPath();
+      wctx.moveTo(x0, h - 1);
+      wctx.lineTo(x0 + fi, 14);
+      wctx.lineTo(x1 - fo, 14);
+      wctx.lineTo(x1, h - 1);
+      wctx.stroke();
+      wctx.fillStyle = c('--ink');
+      for (const fx of [x0 + fi, x1 - fo]) {
+        wctx.beginPath();
+        wctx.arc(fx, 14, 5, 0, Math.PI * 2);
+        wctx.fill();
+      }
+
+      // Readout
+      wctx.fillStyle = c('--ink-dim');
+      wctx.font = '500 10px Geist Mono, monospace';
+      wctx.textAlign = 'right';
+      const beats = (clip.lengthSteps / 4).toFixed(clip.lengthSteps % 4 ? 2 : 0);
+      wctx.fillText(`${beats} BEATS  ${(clip.gainDb || 0) >= 0 ? '+' : ''}${(clip.gainDb || 0).toFixed(1)} dB${clip.reverse ? '  REV' : ''}`, w - 14, h - 30);
+      wctx.textAlign = 'left';
+    }
+
+    let drag = null;
+    wave.addEventListener('pointerdown', (e) => {
+      const { r, sx, toSteps } = geom();
+      const x = e.clientX - r.left;
+      const y = e.clientY - r.top;
+      const off = clip.offsetSteps || 0;
+      const x0 = sx(off);
+      const x1 = sx(off + clip.lengthSteps);
+      const fiX = sx(off + (clip.fadeInSteps || 0));
+      const foX = sx(off + clip.lengthSteps - (clip.fadeOutSteps || 0));
+      let mode = null;
+      if (y < 34 && Math.abs(x - fiX) < 18) mode = 'fade-in';
+      else if (y < 34 && Math.abs(x - foX) < 18) mode = 'fade-out';
+      else if (Math.abs(x - x0) < 18) mode = 'start';
+      else if (Math.abs(x - x1) < 18) mode = 'end';
+      else if (x > x0 && x < x1) mode = 'slip';
+      if (!mode) return;
+      store.beginGesture(`SAMPLE ${mode.toUpperCase()}`);
+      drag = { mode, x0: toSteps(x), orig: { ...clip } };
+      wave.setPointerCapture(e.pointerId);
+    });
+    wave.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const { r, toSteps } = geom();
+      const d = Math.round(toSteps(e.clientX - r.left) - drag.x0);
+      const o = drag.orig;
+      const off0 = o.offsetSteps || 0;
+      const tot = Math.floor(total());
+      if (drag.mode === 'start') {
+        const dd = Math.max(-off0, -o.startStep, Math.min(o.lengthSteps - 1, d));
+        clip.offsetSteps = off0 + dd;
+        clip.startStep = o.startStep + dd;
+        clip.lengthSteps = o.lengthSteps - dd;
+      } else if (drag.mode === 'end') {
+        clip.lengthSteps = Math.max(1, Math.min(tot - off0, o.lengthSteps + d));
+      } else if (drag.mode === 'slip') {
+        clip.offsetSteps = Math.max(0, Math.min(tot - o.lengthSteps, off0 + d));
+      } else if (drag.mode === 'fade-in') {
+        clip.fadeInSteps = Math.max(0, Math.min(clip.lengthSteps - (clip.fadeOutSteps || 0), (o.fadeInSteps || 0) + d));
+      } else if (drag.mode === 'fade-out') {
+        clip.fadeOutSteps = Math.max(0, Math.min(clip.lengthSteps - (clip.fadeInSteps || 0), (o.fadeOutSteps || 0) - d));
+      }
+      clip.fadeInSteps = Math.min(clip.fadeInSteps || 0, clip.lengthSteps);
+      clip.fadeOutSteps = Math.min(clip.fadeOutSteps || 0, clip.lengthSteps - (clip.fadeInSteps || 0));
+      store.markGestureDirty();
+      draw();
+    });
+    const endDrag = () => {
+      if (!drag) return;
+      drag = null;
+      store.commitGesture();
+      store.emit('arr');
+    };
+    wave.addEventListener('pointerup', endDrag);
+    wave.addEventListener('pointercancel', endDrag);
+
+    // Controls
+    const ctrl = document.createElement('div');
+    ctrl.className = 'smp-ctrl';
+
+    const gainRot = createRotary({
+      param: { id: 'gain', label: 'GAIN', min: -24, max: 12, default: 0, step: 0.5, unit: 'dB' },
+      value: clip.gainDb || 0,
+      size: 38,
+      onGestureStart: () => store.beginGesture('CLIP GAIN'),
+      onGestureEnd: () => store.commitGesture(),
+      onChange: (v) => {
+        clip.gainDb = v;
+        store.markGestureDirty();
+        draw();
+      }
+    });
+    const pitchRot = createRotary({
+      param: { id: 'pitch', label: 'PITCH', min: -12, max: 12, default: 0, step: 1, unit: 'st' },
+      value: ac.pitch || 0,
+      size: 38,
+      onGestureStart: () => store.beginGesture('SAMPLE PITCH'),
+      onGestureEnd: () => store.commitGesture(),
+      onChange: (v) => {
+        ac.pitch = v;
+        store.markGestureDirty();
+      }
+    });
+
+    const tools = document.createElement('div');
+    tools.className = 'smp-tools';
+    const mkChip = (label, title, fn, cls = '') => {
+      const b = document.createElement('button');
+      b.className = `ctx-chip ${cls}`.trim();
+      b.textContent = label;
+      b.title = title;
+      b.onclick = fn;
+      tools.appendChild(b);
+      return b;
+    };
+    const revBtn = mkChip('REV', 'Reverse', () => {
+      store.pushHistory('REVERSE');
+      const tot = total();
+      // Keep the same slice of audio, now played backwards
+      clip.offsetSteps = Math.max(0, Math.round(tot - (clip.offsetSteps || 0) - clip.lengthSteps));
+      clip.reverse = !clip.reverse;
+      revBtn.classList.toggle('active', clip.reverse);
+      [clip.fadeInSteps, clip.fadeOutSteps] = [clip.fadeOutSteps || 0, clip.fadeInSteps || 0];
+      draw();
+      store.emit('arr');
+    }, clip.reverse ? 'active' : '');
+    mkChip('SPLIT', 'Split at playhead (or middle)', () => {
+      const ph = store.getState().currentStep;
+      const inside = ph > clip.startStep && ph < clip.startStep + clip.lengthSteps;
+      splitClipAt(clip, inside ? ph : clip.startStep + Math.floor(clip.lengthSteps / 2));
+      draw();
+    });
+    mkChip('FIT', 'Reset trims to the whole sample', () => {
+      store.pushHistory('FIT SAMPLE');
+      clip.offsetSteps = 0;
+      clip.lengthSteps = Math.max(1, Math.min(SONG_MAX_STEPS - clip.startStep, Math.round(total())));
+      clip.fadeInSteps = 0;
+      clip.fadeOutSteps = 0;
+      draw();
+      store.emit('arr');
+    });
+
+    const warp = document.createElement('div');
+    warp.className = 'dsp-seg-bar smp-warp';
+    warp.style.gridTemplateColumns = `repeat(${WARP_MODES.length}, 1fr)`;
+    WARP_MODES.forEach((m) => {
+      const b = document.createElement('button');
+      b.className = `dsp-seg-btn ${ac.warpMode === m ? 'active' : ''}`;
+      b.textContent = m === 'RE-PITCH' ? 'REPITCH' : m;
+      b.onclick = () => {
+        store.pushHistory(`WARP ${m}`);
+        ac.warpMode = m;
+        warp.querySelectorAll('.dsp-seg-btn').forEach((x) => x.classList.toggle('active', x === b));
+        renderBars();
+      };
+      warp.appendChild(b);
+    });
+
+    const right = document.createElement('div');
+    right.className = 'smp-right';
+    right.append(warp, tools);
+    ctrl.append(gainRot.el, pitchRot.el, right);
+    body.append(wave, ctrl);
+    panelEl.append(hdr, body);
+
+    const ro = new ResizeObserver(() => {
+      if (!wave.isConnected) {
+        ro.disconnect();
+        return;
+      }
+      draw();
+    });
+    ro.observe(wave);
+    requestAnimationFrame(draw);
   }
 
   function renderLaneLabelModal(modalEl) {
@@ -1256,14 +1732,11 @@ export function createArrView() {
     }
 
     list.appendChild(
-      makeBtn('SLICE', () => {
-        if (clip.lengthSteps >= 8) {
-          store.pushHistory(`SLICE ${clip.refId}`);
-          const half = Math.floor(clip.lengthSteps / 2);
-          clip.lengthSteps = half;
-          st.arrClips.push({ ...clip, id: nextId('clip'), startStep: clip.startStep + half, lengthSteps: half });
-          store.emit('arr');
-        }
+      makeBtn('SPLIT', () => {
+        const ph = st.currentStep;
+        const inside = ph > clip.startStep && ph < clip.startStep + clip.lengthSteps;
+        const at = inside ? ph : clip.startStep + Math.floor(clip.lengthSteps / 2 / (clip.kind === 'audio' ? 1 : 4)) * (clip.kind === 'audio' ? 1 : 4);
+        splitClipAt(clip, at);
         close();
       })
     );
@@ -1271,7 +1744,7 @@ export function createArrView() {
     list.appendChild(
       makeBtn('DUPLICATE', () => {
         store.pushHistory(`DUP ${clip.refId}`);
-        const copy = { ...clip, id: nextId('clip'), startStep: Math.min(112, clip.startStep + clip.lengthSteps) };
+        const copy = { ...clip, id: nextId('clip'), startStep: Math.min(SONG_MAX_STEPS - clip.lengthSteps, clip.startStep + clip.lengthSteps) };
         st.arrClips.push(copy);
         st.selectedArrClipId = copy.id;
         store.emit('arr');

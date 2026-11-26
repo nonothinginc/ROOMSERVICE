@@ -37,6 +37,8 @@ Grammar: Dieter Rams / Braun restraint + Teenage Engineering flatness + Nothing 
 - **Right rail (48px):** dot-matrix cutout, twin master bars, half-moon finish toggle.
 - **Mixer:** strips are flat; selected strip gets `--surface`. A / B / P compact knobs fit 106px strips; IEC meters unchanged.
 - **DSP cards:** borderless `--surface` cards; focus shown by the red title dot; footer separated by a hairline.
+- **Playlist (ARR):** timeline up to 64 bars; song plays to the last clip's bar. LOOP key (LED + range `1–8`) toggles the loop; ruler (28px) shows the brace — drag its edges to resize, drag inside to move, long-press the ruler and drag to draw a new loop, tap to scrub. Audio clips: drag left/right edge to trim (1/16 snap), tap to open the SAMPLE editor (trim / slip / fade handles on the waveform, GAIN, PITCH, warp mode, REV, SPLIT, FIT, ▶ preview). No D-pad cursor unless a gamepad is connected.
+- **CHORD deck JAM:** JAM key → 1-bar count-in (big red digit) → loops the playlist loop (or bars 1–8), each pass is a take (TAKE n + bar strip). Stop → last complete take becomes a `JAMn` pattern clip on the Brickchord track's lane; earlier takes and replaced clips go to the LAB. The jam track's existing parts are muted while jamming.
 - **Piano roll:** flat key column, black keys as short recessed bars, firmer hairline at each octave, scale root marked with a faint tick and label.
 
 ## 4. Breakpoints
@@ -55,5 +57,7 @@ Grammar: Dieter Rams / Braun restraint + Teenage Engineering flatness + Nothing 
 - `Left Stick`: Pan/Zoom (`ROLL`/`ARR`) or X/Y morph (`DSP`).
 - `Right Stick`: Rotary value / note length & velocity / mixer fader (`L2` fine mode).
 - `A` tap / `A` hold (450ms): Confirm/draw / Open contextual hardware detail overlay.
+- `SELECT` (ARR): tap toggles the playlist loop; hold `SELECT` + `←/→` shrinks/grows the loop end, `SELECT` + `↑/↓` slides the loop one bar.
+- `SELECT + START` (CHORD deck): start/stop JAM (count-in, loop, take capture). Plain `START` still plays/stops; stopping commits the jam.
 - `B`: Delete selection / Bypass insert FX / Dismiss overlay.
 - `X` / `Y`: Randomizer / Unique clip (`X`); Cycle bottom Roll lane / Create Auto clip (`Y`).

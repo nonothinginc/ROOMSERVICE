@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import { getDevice } from '../device-registry.js';
-import { nextId, store } from '../state/store.js';
+import { getSongEnd, getSongRange, nextId, store } from '../state/store.js';
 import { analyzeAudioBuffer } from './bpm-detector.js';
 import { addUserSampleBuffer, ensureFactoryDrumKits, getSamplePool } from './drum-kits.js';
 import { createPunchFx } from './punch-fx.js';
@@ -156,6 +156,9 @@ class AudioEngine {
     this.droneState = { active: false, rootMidi: 48, rx: 0, ry: 0, hold: false, oscs: [], filter: null, gain: null };
 
     this.activeAudioSources = new Map();
+    this.songResync = false;
+    this.jam = null;
+    this.jamTimers = [];
     this.samplerBuffers = new Map();
     this.lastActiveMidiByTrack = new Array(8).fill(null);
     this.mediaRecorder = null;
@@ -735,6 +738,10 @@ class AudioEngine {
       this.cancelCountIn();
       return;
     }
+    if (this.jam) {
+      this.stopJam(true);
+      return;
+    }
     if (st.isPlaying) {
       transport.stop();
       this.stopAllAudioClips();
@@ -763,7 +770,8 @@ class AudioEngine {
           setTimeout(() => {
             if (store.getState().countInBeat !== 4) return;
             st.countInBeat = 0;
-            st.currentStep = 0;
+            st.currentStep = this.getPlayStartStep();
+            this.songResync = true;
             transport.start('+0.005');
             st.isPlaying = true;
             store.emit('transport', { isPlaying: true, countInBeat: 0 });
@@ -779,10 +787,17 @@ class AudioEngine {
       return;
     }
 
-    st.currentStep = 0;
+    st.currentStep = this.getPlayStartStep();
+    this.songResync = true;
     transport.start('+0.005');
     st.isPlaying = true;
     store.emit('transport', { isPlaying: true });
+  }
+
+  /** SONG mode starts at the loop start when looping, otherwise bar 1. */
+  getPlayStartStep() {
+    const st = store.getState();
+    return st.playMode === 'SONG' ? getSongRange(st).start : 0;
   }
 
   async toggleRecord() {
@@ -794,7 +809,7 @@ class AudioEngine {
 
   scrubStep(delta) {
     const st = store.getState();
-    const maxLen = st.playMode === 'PAT' ? st.patterns[st.activePatternId]?.length || 16 : 128;
+    const maxLen = st.playMode === 'PAT' ? st.patterns[st.activePatternId]?.length || 16 : getSongEnd(st);
     st.currentStep = ((st.currentStep + delta) % maxLen + maxLen) % maxLen;
     store.emit('step', st.currentStep);
   }
@@ -908,12 +923,285 @@ class AudioEngine {
     return true;
   }
 
+  /* ------------------------------------------------------------------ *
+   * JAM: loop a playlist range, count in one bar, capture pad chords as
+   * takes (one per loop pass). On stop the last complete take becomes a
+   * pattern clip on the jam track's lane; other takes go to the LAB.
+   * ------------------------------------------------------------------ */
+
+  isJamming() {
+    return Boolean(this.jam);
+  }
+
+  async startJam(trackId) {
+    await this.unlock();
+    if (this.jam) {
+      this.stopJam(true);
+      return;
+    }
+    const st = store.getState();
+    const transport = Tone.getTransport();
+    if (st.isPlaying) {
+      transport.stop();
+      this.stopAllAudioClips();
+      st.isPlaying = false;
+    }
+    this.cancelCountIn();
+
+    const range = st.loop?.on && st.loop.end > st.loop.start ? { start: st.loop.start, end: st.loop.end } : { start: 0, end: 128 };
+    store.setLoop({ on: true, start: range.start, end: range.end });
+    st.playMode = 'SONG';
+    st.currentStep = range.start;
+
+    const len = range.end - range.start;
+    this.jam = {
+      trackId,
+      start: range.start,
+      len,
+      phase: 'count',
+      absNext: 0,
+      stepLog: [],
+      open: null,
+      takes: new Map(),
+      lastPos: 0
+    };
+
+    const rawCtx = Tone.getContext().rawContext;
+    const beatSec = 60 / Math.max(40, st.bpm);
+    const t0 = rawCtx.currentTime + 0.08;
+    for (let i = 0; i < 4; i++) this.playMetronomeClick(t0 + i * beatSec, i === 0);
+    const downbeat = t0 + 4 * beatSec;
+    this.jam.downbeat = downbeat;
+    this.jam.beatSec = beatSec;
+    this.songResync = true;
+    transport.start(downbeat);
+
+    const setStatus = (patch) => {
+      st.jam = { ...(st.jam || {}), ...patch };
+      store.emit('jam', st.jam);
+    };
+    setStatus({ phase: 'count', count: 4, take: 1, bar: 0, bars: len / 16, takes: 0 });
+    st.countInBeat = 4;
+    store.emit('transport', { playMode: 'SONG', countInBeat: 4 });
+
+    const msUntil = (t) => Math.max(0, (t - rawCtx.currentTime) * 1000);
+    for (let i = 1; i < 4; i++) {
+      this.jamTimers.push(
+        setTimeout(() => {
+          if (!this.jam) return;
+          st.countInBeat = 4 - i;
+          setStatus({ count: 4 - i });
+          store.emit('transport', { countInBeat: 4 - i });
+        }, msUntil(t0 + i * beatSec))
+      );
+    }
+    this.jamTimers.push(
+      setTimeout(() => {
+        if (!this.jam) return;
+        this.jam.phase = 'rec';
+        st.countInBeat = 0;
+        st.isPlaying = true;
+        setStatus({ phase: 'rec', count: 0 });
+        store.emit('transport', { isPlaying: true, countInBeat: 0 });
+      }, msUntil(downbeat))
+    );
+  }
+
+  logJamStep(songStep, time, stepDur) {
+    const jam = this.jam;
+    if (!jam) return;
+    const abs = jam.absNext++;
+    jam.stepDur = stepDur;
+    jam.stepLog.push({ abs, time });
+    if (jam.stepLog.length > 8) jam.stepLog.shift();
+
+    // Held chord crossing the loop boundary: close it on this pass, re-open on the next
+    if (abs > 0 && abs % jam.len === 0 && jam.open) {
+      const held = jam.open;
+      this.closeJamChord(abs);
+      jam.open = { ...held, qStart: abs, rawStart: abs };
+    }
+    const st = store.getState();
+    const pass = Math.floor(abs / jam.len);
+    const bar = Math.floor((abs % jam.len) / 16);
+    if (!st.jam || st.jam.take !== pass + 1 || st.jam.bar !== bar) {
+      Tone.getDraw().schedule(() => {
+        if (!this.jam) return;
+        st.jam = { ...(st.jam || {}), take: pass + 1, bar, takes: this.countCompleteTakes(abs) };
+        store.emit('jam', st.jam);
+      }, time);
+    }
+  }
+
+  /** Musical position (in steps since the jam downbeat) of what the player is hearing now. */
+  jamPosNow() {
+    const jam = this.jam;
+    if (!jam || jam.stepLog.length === 0) return 0;
+    const rawCtx = Tone.getContext().rawContext;
+    const heard = rawCtx.currentTime - (rawCtx.outputLatency || rawCtx.baseLatency || 0);
+    let ref = jam.stepLog[0];
+    for (const e of jam.stepLog) if (e.time <= heard) ref = e;
+    const pos = ref.abs + (heard - ref.time) / (jam.stepDur || 0.125);
+    return Math.max(0, pos);
+  }
+
+  jamQuant() {
+    const rq = store.getState().recQuant;
+    return rq > 0 ? rq : rq === 0 ? 0.25 : 1;
+  }
+
+  jamChordOn(midiNotes, vel = 0.86) {
+    const jam = this.jam;
+    if (!jam || !midiNotes?.length) return;
+    // Count-in presses only count as pickups within the final beat before the downbeat
+    if (jam.stepLog.length === 0 && Tone.getContext().rawContext.currentTime < jam.downbeat - jam.beatSec) return;
+    const pos = this.jamPosNow();
+    if (jam.open) this.closeJamChord(pos);
+    const q = this.jamQuant();
+    jam.open = { notes: [...new Set(midiNotes.map((m) => Math.round(m)))], vel, qStart: Math.round(pos / q) * q, rawStart: pos };
+  }
+
+  jamChordOff() {
+    if (!this.jam?.open) return;
+    this.closeJamChord(this.jamPosNow());
+  }
+
+  closeJamChord(endPos) {
+    const jam = this.jam;
+    const open = jam?.open;
+    if (!open) return;
+    jam.open = null;
+    const q = this.jamQuant();
+    const pass = Math.floor(open.qStart / jam.len);
+    const local = open.qStart - pass * jam.len;
+    const qEnd = Math.round(endPos / q) * q;
+    const len = Math.max(q, Math.min(jam.len - local, qEnd - open.qStart));
+    if (!jam.takes.has(pass)) jam.takes.set(pass, []);
+    const vel = Math.max(25, Math.min(127, Math.round(open.vel * 127)));
+    for (const midi of open.notes) {
+      jam.takes.get(pass).push({ id: nextId('n'), step: local, len, midi, vel, prob: 100, slide: false, cutoff: 0 });
+    }
+  }
+
+  countCompleteTakes(absNow) {
+    if (!this.jam) return 0;
+    const done = Math.floor(absNow / this.jam.len);
+    let n = 0;
+    for (const [pass, notes] of this.jam.takes) if (pass < done && notes.length) n++;
+    return n;
+  }
+
+  stopJam(commit = true) {
+    const jam = this.jam;
+    if (!jam) return;
+    const st = store.getState();
+    const endPos = this.jamPosNow();
+    if (jam.open) this.closeJamChord(endPos);
+    this.jamTimers.forEach(clearTimeout);
+    this.jamTimers = [];
+    this.jam = null;
+
+    Tone.getTransport().stop();
+    this.stopAllAudioClips();
+    for (const ch of this.channels) ch.insertNodes[0]?.node.releaseAll?.(Tone.immediate());
+    st.isPlaying = false;
+    st.countInBeat = 0;
+    st.jam = null;
+    store.emit('transport', { isPlaying: false, countInBeat: 0 });
+    store.emit('jam', null);
+
+    if (!commit) return null;
+    const passesDone = Math.floor(endPos / jam.len);
+    const withNotes = [...jam.takes.entries()].filter(([, n]) => n.length).sort((a, b) => a[0] - b[0]);
+    if (withNotes.length === 0) return null;
+    const complete = withNotes.filter(([p]) => p < passesDone);
+    const keeper = (complete.length ? complete : withNotes)[(complete.length ? complete : withNotes).length - 1];
+    const others = withNotes.filter((t) => t !== keeper && (complete.length === 0 || t[0] < passesDone));
+    return this.commitJamTakes(jam, keeper, others);
+  }
+
+  commitJamTakes(jam, keeper, others) {
+    const st = store.getState();
+    const tr = st.tracks[jam.trackId];
+    const slot = tr?.inserts[0];
+    const def = slot ? getDevice(slot.deviceId) : null;
+    store.pushHistory('JAM TAKE');
+
+    const used = new Set(st.arrClips.filter((c) => c.kind === 'pattern').map((c) => c.refId));
+    const patId = Object.keys(st.patterns).find((id) => {
+      const pat = st.patterns[id];
+      return !used.has(id) && id !== st.activePatternId && Object.values(pat.notesByTrack).every((a) => !a?.length);
+    });
+    if (!patId) return null;
+    const jamNo = st.arrClips.filter((c) => /^JAM/.test(st.patterns[c.refId]?.name || '')).length + 1;
+    const pat = st.patterns[patId];
+    pat.length = jam.len;
+    pat.swing = 0;
+    pat.name = `JAM${jamNo}`;
+    pat.notesByTrack = { [jam.trackId]: keeper[1].map((n) => ({ ...n })) };
+
+    // Earlier takes and clips this take replaces are kept in the LAB, never lost
+    const lane = Math.max(0, Math.min(7, jam.trackId));
+    const end = jam.start + jam.len;
+    const replaced = st.arrClips.filter(
+      (c) => c.lane === lane && c.kind === 'pattern' && c.startStep < end && c.startStep + c.lengthSteps > jam.start
+    );
+    const labBase = st.lab.length;
+    const takeEntries = others.map(([pass, notes], i) => ({
+      id: `LAB${String(labBase + i + 1).padStart(2, '0')}`,
+      name: `JAM${jamNo} TAKE ${pass + 1} · ${tr?.name || 'INST'}`,
+      createdAt: Date.now(),
+      kind: 'pattern',
+      refId: `JAM${jamNo}`,
+      lengthSteps: jam.len,
+      bpm: st.bpm,
+      instrumentId: slot?.deviceId || 'brickchord',
+      instrumentName: def?.meta.name || tr?.name || 'BRICKCHORD',
+      instrumentParams: slot ? { ...slot.params } : {},
+      notes: notes.map((n) => ({ ...n })),
+      audioRef: null,
+      autoClip: null
+    }));
+    st.lab.unshift(...takeEntries.reverse());
+    for (const c of replaced) {
+      const p = st.patterns[c.refId];
+      const notes = (p?.notesByTrack[jam.trackId] || []).map((n) => ({ ...n }));
+      if (notes.length) {
+        st.lab.unshift({
+          id: `LAB${String(st.lab.length + 1).padStart(2, '0')}`,
+          name: `${p.name || c.refId} · REPLACED`,
+          createdAt: Date.now(),
+          kind: 'pattern',
+          refId: c.refId,
+          lengthSteps: p.length,
+          bpm: st.bpm,
+          instrumentId: slot?.deviceId || 'brickchord',
+          instrumentName: def?.meta.name || 'INST',
+          instrumentParams: slot ? { ...slot.params } : {},
+          notes,
+          audioRef: null,
+          autoClip: null
+        });
+      }
+    }
+    st.arrClips = st.arrClips.filter((c) => !replaced.includes(c));
+    const clip = { id: nextId('clip'), kind: 'pattern', refId: patId, lane, startStep: jam.start, lengthSteps: jam.len, trackOverride: null };
+    st.arrClips.push(clip);
+    st.selectedArrClipId = clip.id;
+    st.currentStep = jam.start;
+    store.emit('lab', { action: 'jam' });
+    store.emit('pattern', { patId });
+    store.emit('arr', { action: 'jam', clipId: clip.id });
+    return { clip, patId, takes: others.length + 1 };
+  }
+
   onStep(time) {
     const st = store.getState();
     const step = st.currentStep;
     const stepDur = (60 / st.bpm) / 4;
 
-    if (step % 4 === 0 && (st.metronome === 'on' || (st.metronome === 'rec' && st.isRecording))) {
+    const recLike = st.isRecording || Boolean(this.jam);
+    if (step % 4 === 0 && (st.metronome === 'on' || (st.metronome === 'rec' && recLike))) {
       this.playMetronomeClick(time, step % 16 === 0);
     }
 
@@ -932,8 +1220,12 @@ class AudioEngine {
       }
       st.currentStep = (step + 1) % patLen;
     } else {
-      const songLength = 128;
-      const songStep = step % songLength;
+      const range = getSongRange(st);
+      const songStep = step < range.start || step >= range.end ? range.start : step;
+      const resync = this.songResync;
+      this.songResync = false;
+      const jamTrack = this.jam ? this.jam.trackId : -1;
+      if (this.jam) this.logJamStep(songStep, time, stepDur);
 
       for (const clip of st.arrClips) {
         if (songStep < clip.startStep || songStep >= clip.startStep + clip.lengthSteps) continue;
@@ -946,12 +1238,14 @@ class AudioEngine {
           const swungTime = localStep % 2 === 1 ? time + (clipSwing / 100) * (stepDur * 0.5) : time;
           for (const [tidStr, notes] of Object.entries(pat.notesByTrack)) {
             const tid = clip.trackOverride != null ? clip.trackOverride : Number(tidStr);
+            // While jamming, the jam track's sequenced parts are muted so the new take replaces them
+            if (tid === jamTrack) continue;
             this.triggerNotesAtStep(tid, notes, localStep, stepDur, swungTime);
           }
         } else if (clip.kind === 'audio') {
           const audioClip = st.audioClips[clip.refId];
-          if (audioClip && songStep === clip.startStep) {
-            this.triggerWarpedAudioClip(clip, audioClip, time, stepDur);
+          if (audioClip && (songStep === clip.startStep || resync)) {
+            this.triggerWarpedAudioClip(clip, audioClip, time, stepDur, songStep - clip.startStep);
           }
         } else if (clip.kind === 'auto') {
           const autoClip = st.autoClips[clip.refId];
@@ -962,7 +1256,15 @@ class AudioEngine {
           }
         }
       }
-      st.currentStep = (songStep + 1) % songLength;
+
+      let next = songStep + 1;
+      if (next >= range.end) {
+        next = range.start;
+        // Loop/song wrap: cut audio exactly at the boundary, then re-sync clips spanning the start
+        this.stopAllAudioClips(time + stepDur);
+        this.songResync = true;
+      }
+      st.currentStep = next;
     }
 
     Tone.getDraw().schedule(() => {
@@ -996,27 +1298,51 @@ class AudioEngine {
     }
   }
 
-  triggerWarpedAudioClip(arrClip, audioClip, time, stepDur) {
+  /**
+   * Plays one playlist placement of an audio clip.
+   * Placement edits live on the arr clip: offsetSteps (trim start), gainDb, fadeInSteps,
+   * fadeOutSteps, reverse. intoSteps > 0 starts mid-clip (loop/playhead re-sync).
+   */
+  triggerWarpedAudioClip(arrClip, audioClip, time, stepDur, intoSteps = 0, key = arrClip.id) {
     if (!audioClip.buffer) return;
     const laneTrack = Math.max(0, Math.min(7, arrClip.lane));
     const targetFader = this.channels[laneTrack]?.fader || this.masterBus;
     const rate = store.getState().bpm / Math.max(40, audioClip.detectedBpm || 128);
-    const playDur = arrClip.lengthSteps * stepDur;
+    const into = Math.max(0, intoSteps);
+    const remainSteps = arrClip.lengthSteps - into;
+    if (remainSteps <= 0) return;
 
-    // Stop previous instance of same clip
-    const existing = this.activeAudioSources.get(arrClip.id);
-    if (existing) {
-      try {
-        existing.stop();
-        existing.dispose();
-      } catch {
-        // ignore
-      }
+    const offsetSec = ((arrClip.offsetSteps || 0) + into) * stepDur * rate;
+    if (offsetSec >= audioClip.duration - 0.005) return;
+    const playSec = Math.min(remainSteps * stepDur, (audioClip.duration - offsetSec) / rate);
+
+    this.stopAudioSource(key);
+
+    const gainLin = Math.pow(10, (arrClip.gainDb || 0) / 20);
+    const fadeIn = (arrClip.fadeInSteps || 0) * stepDur;
+    const fadeOut = Math.min(playSec, (arrClip.fadeOutSteps || 0) * stepDur);
+    const amp = new Tone.Gain(0).connect(targetFader);
+    const g = amp.gain;
+    const intoSec = into * stepDur;
+    if (fadeIn > 0 && intoSec < fadeIn) {
+      g.setValueAtTime(gainLin * (intoSec / fadeIn), time);
+      g.linearRampToValueAtTime(gainLin, time + (fadeIn - intoSec));
+    } else {
+      g.setValueAtTime(gainLin, time);
+    }
+    const endT = time + playSec;
+    if (fadeOut > 0) {
+      g.setValueAtTime(gainLin, Math.max(time, endT - fadeOut));
+      g.linearRampToValueAtTime(0, endT);
+    } else {
+      // 4ms de-click
+      g.setValueAtTime(gainLin, Math.max(time, endT - 0.004));
+      g.linearRampToValueAtTime(0, endT);
     }
 
     let player;
     if (audioClip.warpMode === 'RE-PITCH') {
-      player = new Tone.Player({ url: audioClip.buffer, playbackRate: rate }).connect(targetFader);
+      player = new Tone.Player({ url: audioClip.buffer, playbackRate: rate }).connect(amp);
     } else {
       const isTexture = audioClip.warpMode === 'TEXTURE';
       const isTones = audioClip.warpMode === 'TONES';
@@ -1026,27 +1352,83 @@ class AudioEngine {
         grainSize: isTexture ? audioClip.grainSize || 0.14 : isTones ? 0.12 : 0.055,
         overlap: isTexture ? 0.08 : isTones ? 0.06 : 0.018,
         detune: (audioClip.pitch || 0) * 100
-      }).connect(targetFader);
+      }).connect(amp);
     }
+    player.reverse = Boolean(arrClip.reverse);
 
     try {
-      player.start(time, 0, Math.min(playDur, audioClip.duration / rate + 0.5));
-      this.activeAudioSources.set(arrClip.id, player);
+      player.start(time, offsetSec);
+      player.stop(endT + 0.01);
+      const entry = { player, amp };
+      this.activeAudioSources.set(key, entry);
+      player.onstop = () => {
+        setTimeout(() => {
+          if (this.activeAudioSources.get(key) === entry) this.activeAudioSources.delete(key);
+          this.disposeAudioEntry(entry);
+        }, 60);
+      };
+    } catch {
+      this.disposeAudioEntry({ player, amp });
+    }
+  }
+
+  /** Audition a playlist placement immediately (sample editor). */
+  previewArrClip(arrClip) {
+    const st = store.getState();
+    const audioClip = st.audioClips[arrClip.refId];
+    if (!audioClip) return;
+    if (this.activeAudioSources.has('preview')) {
+      this.stopAudioSource('preview');
+      return;
+    }
+    const stepDur = (60 / st.bpm) / 4;
+    this.triggerWarpedAudioClip(arrClip, audioClip, Tone.immediate() + 0.02, stepDur, 0, 'preview');
+  }
+
+  isPreviewingClip() {
+    return this.activeAudioSources.has('preview');
+  }
+
+  disposeAudioEntry(entry) {
+    if (!entry || entry.disposed) return;
+    entry.disposed = true;
+    try {
+      entry.player.dispose();
+    } catch {
+      // ignore
+    }
+    try {
+      entry.amp.dispose();
     } catch {
       // ignore
     }
   }
 
-  stopAllAudioClips() {
-    for (const player of this.activeAudioSources.values()) {
-      try {
-        player.stop();
-        player.dispose();
-      } catch {
-        // ignore
+  stopAudioSource(key, time = null) {
+    const entry = this.activeAudioSources.get(key);
+    if (!entry) return;
+    this.activeAudioSources.delete(key);
+    try {
+      if (time != null) {
+        entry.amp.gain.cancelScheduledValues(time);
+        entry.amp.gain.setValueAtTime(entry.amp.gain.getValueAtTime(time), time);
+        entry.amp.gain.linearRampToValueAtTime(0, time + 0.004);
+        entry.player.stop(time + 0.006);
+        setTimeout(() => this.disposeAudioEntry(entry), Math.max(80, (time - Tone.immediate()) * 1000 + 120));
+      } else {
+        entry.player.stop();
+        this.disposeAudioEntry(entry);
       }
+    } catch {
+      this.disposeAudioEntry(entry);
     }
-    this.activeAudioSources.clear();
+  }
+
+  stopAllAudioClips(time = null) {
+    for (const key of [...this.activeAudioSources.keys()]) {
+      if (key === 'preview') continue;
+      this.stopAudioSource(key, time);
+    }
   }
 
   applyAutomationValue(autoClip, normY) {
@@ -1107,7 +1489,8 @@ class AudioEngine {
       spray: 20,
       pitch: 0
     };
-    const steps = Math.max(8, Math.min(64, Math.round((analysis.duration * (st.bpm / 60)) * 4)));
+    // Warped length in steps is tempo-independent: duration × detected BPM / 15
+    const steps = Math.max(1, Math.min(256, Math.round((analysis.duration * Math.max(40, analysis.detectedBpm || 128)) / 15)));
     const arrClip = {
       id: nextId('clip'),
       kind: 'audio',

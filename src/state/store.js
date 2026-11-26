@@ -105,6 +105,10 @@ const initialState = {
   selectedDockClip: { kind: 'pattern', refId: 'P01' },
   selectedArrClipId: null,
   arrFollow: true,
+  // Playlist loop region (steps, bar-aligned). end is exclusive.
+  loop: { on: false, start: 0, end: 128 },
+  // Live jam session status mirrored for UI ({ phase: 'count'|'rec', take, bar, bars } or null)
+  jam: null,
   selectedDeviceSlotIdx: 0,
   selectedParamIdx: 0,
 
@@ -210,6 +214,7 @@ function captureSnapshot() {
     laneLabels: [...st.laneLabels],
     patterns: clonePatterns(st.patterns),
     arrClips: st.arrClips.map((c) => ({ ...c })),
+    loop: { ...st.loop },
     autoClips: Object.fromEntries(
       Object.entries(st.autoClips).map(([id, ac]) => [
         id,
@@ -250,6 +255,7 @@ function applySnapshot(snap) {
   st.laneLabels = snap.laneLabels ? [...snap.laneLabels] : ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8'];
   st.patterns = clonePatterns(snap.patterns);
   st.arrClips = snap.arrClips.map((c) => ({ ...c }));
+  if (snap.loop) st.loop = { ...snap.loop };
   st.autoClips = Object.fromEntries(
     Object.entries(snap.autoClips || {}).map(([id, ac]) => [
       id,
@@ -290,9 +296,36 @@ function recordEntry(label, snapshot) {
 
 const listeners = new Set();
 
+/** Timeline canvas extent: 64 bars. */
+export const SONG_MAX_STEPS = 1024;
+
+/** Song end = last clip end rounded up to a whole bar (min 1 bar, 8 bars when empty). */
+export function getSongEnd(st = initialState) {
+  let end = 0;
+  for (const c of st.arrClips) end = Math.max(end, c.startStep + c.lengthSteps);
+  if (end <= 0) return 128;
+  return Math.min(SONG_MAX_STEPS, Math.max(16, Math.ceil(end / 16) * 16));
+}
+
+/** Active playback range in SONG mode: the loop when enabled, else the whole song. */
+export function getSongRange(st = initialState) {
+  if (st.loop?.on && st.loop.end > st.loop.start) return { start: st.loop.start, end: st.loop.end };
+  return { start: 0, end: getSongEnd(st) };
+}
+
 export const store = {
   getState() {
     return initialState;
+  },
+
+  setLoop(patch, historyLabel = null) {
+    const st = initialState;
+    if (historyLabel) this.pushHistory(historyLabel);
+    const next = { ...st.loop, ...patch };
+    next.start = Math.max(0, Math.min(SONG_MAX_STEPS - 16, Math.round(next.start / 16) * 16));
+    next.end = Math.max(next.start + 16, Math.min(SONG_MAX_STEPS, Math.round(next.end / 16) * 16));
+    st.loop = next;
+    this.emit('loop', next);
   },
 
   registerAudioBufferRef(id, buf) {
@@ -745,6 +778,7 @@ export const store = {
       tr.sendB = 0;
     }
     st.arrClips = [];
+    st.loop = { on: false, start: 0, end: 128 };
     st.autoClips = {};
     st.audioClips = {};
     st.laneLabels = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8'];
@@ -817,7 +851,7 @@ export const store = {
 
       entry = {
         id: labId,
-        name: `${clip.refId} // ${tr?.name || 'INST'}`,
+        name: `${clip.refId} · ${tr?.name || 'INST'}`,
         createdAt: Date.now(),
         kind: 'pattern',
         refId: clip.refId,
@@ -834,7 +868,7 @@ export const store = {
       const ac = st.audioClips[clip.refId];
       entry = {
         id: labId,
-        name: `${clip.refId} // ${ac?.name || 'AUDIO'}`,
+        name: `${clip.refId} · ${ac?.name || 'AUDIO'}`,
         createdAt: Date.now(),
         kind: 'audio',
         refId: clip.refId,
@@ -851,7 +885,7 @@ export const store = {
       const aut = st.autoClips[clip.refId];
       entry = {
         id: labId,
-        name: `${clip.refId} // AUTO`,
+        name: `${clip.refId} · AUTO`,
         createdAt: Date.now(),
         kind: 'auto',
         refId: clip.refId,

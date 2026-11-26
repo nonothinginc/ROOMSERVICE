@@ -1,7 +1,7 @@
 import './styles/main.css';
 import { engine } from './audio/engine.js';
 import { input } from './input/gamepad.js';
-import { store } from './state/store.js';
+import { getSongEnd, store } from './state/store.js';
 import { hasAutosave, saveAutosave } from './storage/project-archive.js';
 import { createDotMatrixDisplay } from './ui/dot-matrix.js';
 import { createHeader, createLeftRail, createRightRail, renderHistoryOverlay, renderProjectModal } from './ui/header.js';
@@ -285,6 +285,9 @@ function boot() {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // Dev-only handle for automated UI/audio tests (tools/*.mjs); stripped from production builds
+  if (import.meta.env.DEV) window.__rs = { engine, store, getSongEnd };
 
   if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});

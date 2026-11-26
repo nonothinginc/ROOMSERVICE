@@ -7,6 +7,9 @@ import {
 
 export const PATCH_NAMES = ['JUNO', 'BRASS', 'PWM', 'PLUCK', 'FM', 'ORGAN'];
 export const STYLE_NAMES = ['CHORD', 'FOLK', 'POP', 'HARP', 'ARP', 'REP'];
+// Compact labels for the 256px DSP card segmented bars (full names stay in the CHORD deck)
+const PATCH_SHORT = ['JNO', 'BRS', 'PWM', 'PLK', 'FM', 'ORG'];
+const STYLE_SHORT = ['CHD', 'FLK', 'POP', 'HRP', 'ARP', 'REP'];
 
 export const meta = {
   id: 'brickchord',
@@ -18,7 +21,7 @@ export const meta = {
       id: 'patch',
       label: 'PATCH',
       control: 'segmented',
-      options: PATCH_NAMES,
+      options: PATCH_SHORT,
       min: 0,
       max: 5,
       default: 0,
@@ -29,7 +32,7 @@ export const meta = {
       id: 'style',
       label: 'STYLE',
       control: 'segmented',
-      options: STYLE_NAMES,
+      options: STYLE_SHORT,
       min: 0,
       max: 5,
       default: 0,

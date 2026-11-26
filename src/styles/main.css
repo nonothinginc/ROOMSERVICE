@@ -7,6 +7,8 @@
   --fill: rgba(255, 255, 255, 0.055);
   --fill-strong: rgba(255, 255, 255, 0.11);
   --key-black: #08080A;
+  --clip: #26262C;
+  --clip-sel: #34343C;
   --border: rgba(255, 255, 255, 0.10);
   --border-strong: rgba(255, 255, 255, 0.18);
   --ink: #F2F0EC;
@@ -36,6 +38,8 @@
   --fill: rgba(0, 0, 0, 0.045);
   --fill-strong: rgba(0, 0, 0, 0.09);
   --key-black: #CFCFCA;
+  --clip: #FFFFFF;
+  --clip-sel: #E2E2DD;
   --border: rgba(0, 0, 0, 0.12);
   --border-strong: rgba(0, 0, 0, 0.22);
   --ink: #111113;
@@ -589,6 +593,20 @@ button:focus-visible {
 .ctx-chip.icon-only:active {
   background: var(--fill);
   color: var(--ink);
+}
+
+.ctx-chip .chip-sub {
+  color: var(--ink-faint);
+  font-size: var(--t-micro);
+}
+
+.ctx-chip.active .chip-sub {
+  color: var(--ink-dim);
+}
+
+.loop-chip .ico {
+  width: 15px;
+  height: 15px;
 }
 
 .ctx-chip .chev {
@@ -1343,12 +1361,6 @@ button:focus-visible {
 .dsp-bypass-sq.bypassed {
   background: transparent;
   box-shadow: inset 0 0 0 1px var(--ink-dim);
-}
-
-.dsp-arrow {
-  align-self: center;
-  color: var(--ink-faint);
-  font-size: 11px;
 }
 
 .dsp-add-card {
@@ -2264,6 +2276,137 @@ input[type="checkbox"] {
 .bc-mod-pill.active .pill-hint {
   color: var(--bg);
   opacity: 0.55;
+}
+
+/* Sample editor (ARR audio clip) */
+.smp-body {
+  overflow: hidden;
+}
+
+.smp-wave {
+  width: 100%;
+  flex: 1;
+  min-height: 120px;
+  border-radius: var(--radius-md);
+  touch-action: none;
+  display: block;
+}
+
+.smp-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.smp-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.smp-tools {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.smp-warp .dsp-seg-btn {
+  height: 28px;
+}
+
+@media (max-width: 560px) {
+  .smp-ctrl {
+    flex-wrap: wrap;
+  }
+  .smp-right {
+    flex-basis: 100%;
+  }
+}
+
+/* Brickchord JAM status (over chord HUD) */
+.bc-hud-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.bc-jam {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  pointer-events: none;
+}
+
+.bc-jam.on {
+  display: flex;
+}
+
+.bc-jam-count {
+  font-size: 56px;
+  font-weight: 400;
+  line-height: 1;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+.bc-jam-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-label);
+  letter-spacing: 0.12em;
+}
+
+.bc-jam-top .dim {
+  color: var(--ink-dim);
+}
+
+.rec-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: rec-blink 1s steps(2, start) infinite;
+}
+
+@keyframes rec-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+.bc-jam-bars {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 3px;
+  width: min(86%, 320px);
+}
+
+.bc-jam-bars i {
+  height: 6px;
+  border-radius: 1px;
+  background: var(--fill-strong);
+}
+
+.bc-jam-bars i.done {
+  background: var(--ink-dim);
+}
+
+.bc-jam-bars i.now {
+  background: var(--accent);
+}
+
+.jam-chip.active {
+  color: var(--accent);
 }
 
 .rec-chip.rec-on {
