@@ -4,6 +4,7 @@ import { getSongEnd, getSongRange, nextId, store } from '../state/store.js';
 import { analyzeAudioBuffer } from './bpm-detector.js';
 import { addUserSampleBuffer, ensureFactoryDrumKits, getSamplePool } from './drum-kits.js';
 import { createPunchFx } from './punch-fx.js';
+import { createTapeDeck } from './tape-deck.js';
 
 function evalAutoClip(autoClip, normX) {
   const pts = autoClip.points;
@@ -218,6 +219,11 @@ class AudioEngine {
     this.limiter.connect(this.waveformAnalyser);
     this.limiter.connect(this.fftAnalyser);
     this.limiter.toDestination();
+
+    // Performable tape machine between punch FX and master gain (spliced in once its worklet loads)
+    this.tapeDeck = createTapeDeck(Tone, { onPrint: (buf) => this.onTapePrint(buf) });
+    this.tapeDeck.attach(this.punchFx.output, this.masterGain);
+    this.tapePrintStart = null;
 
     // Return buses
     this.sendABus = new Tone.Gain(1);
@@ -1374,6 +1380,28 @@ class AudioEngine {
     } catch {
       this.disposeAudioEntry({ player, amp });
     }
+  }
+
+  setTapePrint(on) {
+    const st = store.getState();
+    if (on) this.tapePrintStart = st.isPlaying && st.playMode === 'SONG' ? Math.floor(st.currentStep / 16) * 16 : null;
+    this.tapeDeck?.setPrint(on);
+  }
+
+  /** A finished PRINT lands on the playlist as an un-warped audio clip at the bar it started. */
+  onTapePrint(buffer) {
+    const st = store.getState();
+    const n = Object.values(st.audioClips).filter((a) => /^PRINT/.test(a.name)).length + 1;
+    const ac = this.registerAudioBuffer(`PRINT ${n}`, buffer);
+    ac.detectedBpm = st.bpm;
+    ac.warpMode = 'RE-PITCH';
+    const clip = st.arrClips[st.arrClips.length - 1];
+    clip.lengthSteps = Math.max(1, Math.round((buffer.duration * st.bpm) / 15));
+    clip.startStep = this.tapePrintStart ?? 0;
+    const busy = (lane) =>
+      st.arrClips.some((c) => c !== clip && c.lane === lane && c.startStep < clip.startStep + clip.lengthSteps && c.startStep + c.lengthSteps > clip.startStep);
+    clip.lane = [7, 6, 5, 4, 3, 2, 1, 0].find((l) => !busy(l)) ?? 7;
+    store.emit('arr', { action: 'tape-print', id: ac.id });
   }
 
   /** Audition a playlist placement immediately (sample editor). */

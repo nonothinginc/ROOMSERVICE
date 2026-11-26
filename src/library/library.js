@@ -72,6 +72,34 @@ export const library = {
     }
     libraryState.ready = true;
     emit();
+    if (import.meta.env.DEV) this.seedLocalPacks();
+  },
+
+  /**
+   * Local builds only: ZIPs in ./local-packs (served by the dev server, never deployed)
+   * are imported once, automatically, as built-in packs.
+   */
+  async seedLocalPacks() {
+    try {
+      const res = await fetch('./local-packs/index.json', { cache: 'no-store' });
+      if (!res.ok) return;
+      const { packs = [] } = await res.json();
+      const missing = packs.filter((p) => !libraryState.packs.some((x) => x.id === `pk-${slug(cleanName(p.file))}`));
+      if (!missing.length) return;
+      const files = [];
+      for (const p of missing) {
+        const zr = await fetch(`./local-packs/${encodeURIComponent(p.file)}`);
+        if (zr.ok) files.push(new File([await zr.blob()], p.file, { type: 'application/zip' }));
+      }
+      const added = await this.importFiles(files);
+      for (const pack of added || []) {
+        pack.builtin = true;
+        await db.putPack(pack);
+      }
+      emit();
+    } catch (err) {
+      console.warn('[library] local pack seeding skipped', err);
+    }
   },
 
   categoryCounts(packId = null) {
@@ -87,7 +115,8 @@ export const library = {
   async importFiles(fileList) {
     const files = Array.from(fileList || []);
     if (!files.length || libraryState.importing) return null;
-    await engine.unlock();
+    // Decoding works on a suspended context: don't block (auto-seeding runs before any user gesture)
+    engine.unlock();
     const ctx = Tone.getContext().rawContext;
     libraryState.persisted = await db.requestPersistence();
 

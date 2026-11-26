@@ -17,6 +17,7 @@ import { createDspView } from './ui/views/dsp.js';
 import { handleLeadRawPad, renderLeadOverlay, tickLeadOverlay } from './ui/views/lead-pad.js';
 import { createMixView } from './ui/views/mix.js';
 import { renderMpcEditor, tickMpcOverlay } from './ui/views/mpc-editor.js';
+import { handleTapeRawPad, renderTapeDeckOverlay, tickTapeDeckOverlay } from './ui/views/tape-deck-view.js';
 import { createRollView } from './ui/views/roll.js';
 
 function boot() {
@@ -178,6 +179,8 @@ function boot() {
         renderHistoryOverlay(panel);
       } else if (st.detailOverlay.type === 'lab') {
         renderLabOverlay(panel);
+      } else if (st.detailOverlay.type === 'tape') {
+        renderTapeDeckOverlay(panel);
       } else if (st.detailOverlay.type === 'library') {
         panel.classList.add('lib-panel');
         renderLibraryOverlay(panel);
@@ -262,6 +265,7 @@ function boot() {
     const t = store.getState().detailOverlay?.type;
     if (t === 'brickchord') handleBrickchordRawPad(pad);
     else if (t === 'lead') handleLeadRawPad(pad);
+    else if (t === 'tape') handleTapeRawPad(pad);
   });
 
   input.onWheel((ev) => {
@@ -292,6 +296,7 @@ function boot() {
     tickMpcOverlay();
     tickBrickchordOverlay();
     tickLeadOverlay();
+    tickTapeDeckOverlay();
     views.DSP.tickOverlay?.();
     views.MIX.tickOverlay?.();
     const activeView = views[store.getState().view];

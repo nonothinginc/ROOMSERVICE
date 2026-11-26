@@ -2839,3 +2839,184 @@ input[type="checkbox"] {
     flex-basis: 100%;
   }
 }
+
+/* ---------- TAPE deck (master tape machine) ---------- */
+.tape-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.tape-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px;
+}
+
+/* The tape display is always black, in both finishes */
+.tape-screen {
+  grid-column: 1;
+  grid-row: 1;
+  min-height: 0;
+  background: #0A0A0B;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.tape-screen canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.tape-vari {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+}
+
+.tape-vari-lbl {
+  font-size: var(--t-micro);
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+}
+
+.tape-vari-track {
+  flex: 1;
+  width: 44px;
+  position: relative;
+  touch-action: none;
+  cursor: ns-resize;
+}
+
+.tape-vari-track::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.tape-vari-unity {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 50%;
+  height: 1px;
+  background: var(--ink-dim);
+}
+
+.tape-vari-cap {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--ink);
+  transform: translateY(-50%);
+  transition: top 0.18s cubic-bezier(0.3, 1.4, 0.5, 1);
+  pointer-events: none;
+}
+
+.tape-ctrl {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: stretch;
+}
+
+.tape-pads {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tape-pad {
+  min-height: 72px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--fill-strong);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 8px 10px;
+  font-size: var(--t-body);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  touch-action: none;
+  user-select: none;
+  cursor: pointer;
+  transition: background 50ms, color 50ms;
+}
+
+.tape-pad .pill-hint {
+  align-self: flex-end;
+}
+
+.tape-pad.active {
+  background: var(--accent);
+  color: #F2F0EC;
+}
+
+.tape-pad.active .pill-hint {
+  color: rgba(242, 240, 236, 0.7);
+}
+
+.tape-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tape-loop-seg .dsp-seg-btn {
+  height: 28px;
+}
+
+.tape-knobs {
+  display: flex;
+  justify-content: space-around;
+}
+
+.tape-print:not(.active) .rec-dot {
+  animation: none;
+  background: var(--ink-faint);
+}
+
+.tape-print.active {
+  color: var(--accent);
+}
+
+@media (max-height: 520px) {
+  .tape-body {
+    padding: 8px;
+    gap: 8px;
+  }
+  .tape-pad {
+    min-height: 58px;
+  }
+}
+
+@media (max-width: 560px) {
+  .tape-body {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+  .tape-ctrl {
+    grid-template-columns: 1fr;
+  }
+}

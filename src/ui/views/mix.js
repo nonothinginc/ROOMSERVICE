@@ -512,6 +512,17 @@ export function createMixView() {
         store.emit('overlay', store.getState().detailOverlay);
       };
       el.appendChild(punchBtn);
+
+      const tapeBtn = document.createElement('button');
+      tapeBtn.className = 'mix-fx-btn';
+      tapeBtn.textContent = 'TAPE';
+      tapeBtn.title = 'Master tape machine: stop / rev / loop / scrub / print';
+      tapeBtn.onclick = (e) => {
+        e.stopPropagation();
+        store.getState().detailOverlay = { type: 'tape' };
+        store.emit('overlay', store.getState().detailOverlay);
+      };
+      el.appendChild(tapeBtn);
     }
 
     const ms = document.createElement('div');

@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 const [, , url, zip, out, vp = '640x480@2'] = process.argv;
 const [wh, d] = vp.split('@'); const [W, H] = wh.split('x').map(Number);
 const browser = await chromium.launch({ channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
-const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: Number(d), hasTouch: true });
+const page = await (await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: W, height: H }, deviceScaleFactor: Number(d), hasTouch: true })).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') errs.push(m.type() + ': ' + m.text()); });

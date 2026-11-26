@@ -3,7 +3,7 @@
 import { chromium } from 'playwright';
 const url = process.argv[2];
 const browser = await chromium.launch({ channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
-const page = await browser.newPage({ viewport: { width: 640, height: 480 }, deviceScaleFactor: 2, hasTouch: true });
+const page = await (await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 640, height: 480 }, deviceScaleFactor: 2, hasTouch: true })).newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push(m.text()); });

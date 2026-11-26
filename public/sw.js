@@ -1,4 +1,4 @@
-const CACHE_NAME = 'roomservice-v13';
+const CACHE_NAME = 'roomservice-v14';
 const APP_SHELL = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {

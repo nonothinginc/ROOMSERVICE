@@ -9,7 +9,7 @@ const ITEMS = [
   { id: 'MPC', label: 'MPC', kind: 'overlay' },
   { id: 'CHORD', label: 'CHORD', kind: 'overlay' },
   { id: 'LEAD', label: 'LEAD', kind: 'overlay' },
-  { id: 'LAB', label: 'LAB', kind: 'overlay' }
+  { id: 'TAPE', label: 'TAPE', kind: 'overlay' }
 ];
 
 function activateChoice(choice) {
@@ -26,8 +26,8 @@ function activateChoice(choice) {
     return;
   }
 
-  if (choice.id === 'LAB') {
-    st.detailOverlay = { type: 'lab' };
+  if (choice.id === 'TAPE') {
+    st.detailOverlay = { type: 'tape' };
     store.emit('overlay', st.detailOverlay);
     return;
   }
@@ -95,7 +95,7 @@ export function createModeWheel() {
     if (st.detailOverlay?.type === 'mpc') return 4;
     if (st.detailOverlay?.type === 'brickchord') return 5;
     if (st.detailOverlay?.type === 'lead') return 6;
-    if (st.detailOverlay?.type === 'lab') return 7;
+    if (st.detailOverlay?.type === 'tape') return 7;
     const idx = ITEMS.findIndex((it) => it.id === st.view);
     return idx >= 0 ? idx : 0;
   }

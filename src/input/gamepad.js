@@ -1,7 +1,7 @@
 import { engine } from '../audio/engine.js';
 import { store } from '../state/store.js';
 
-const BTN = {
+export const BTN = {
   A: 0,
   B: 1,
   X: 2,
@@ -349,7 +349,7 @@ class InputController {
       this.diagState.buttons[BTN.L2] = this.keysDown.has('ShiftLeft') || this.keysDown.has('ShiftRight');
 
       const ovType = store.getState().detailOverlay?.type;
-      if (ovType === 'brickchord' || ovType === 'lead') {
+      if (ovType === 'brickchord' || ovType === 'lead' || ovType === 'tape') {
         const kbBtns = new Array(16).fill(false);
         kbBtns[BTN.LEFT] = this.keysDown.has('Digit1');
         kbBtns[BTN.UP] = this.keysDown.has('Digit2');
@@ -413,7 +413,7 @@ class InputController {
     // Raw performance passthrough when Brickchord / Lead RG477V overlay is open
     const activeSt = store.getState();
     const rawOverlayType = activeSt.detailOverlay?.type;
-    if (rawOverlayType === 'brickchord' || rawOverlayType === 'lead') {
+    if (rawOverlayType === 'brickchord' || rawOverlayType === 'lead' || rawOverlayType === 'tape') {
       // SELECT + START is reserved for JAM inside the Brickchord deck
       if (justPressed(BTN.START) && !cur[BTN.SELECT]) {
         engine.togglePlay();

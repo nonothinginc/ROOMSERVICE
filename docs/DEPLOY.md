@@ -9,6 +9,17 @@ npm run build    # Compiles dist/ with relative ./ paths (vite.config.js base: '
 
 > **Network Note:** On the current home network, outbound tunnel ports (`22` for `localhost.run` / `pinggy` and `7844` for `cloudflared`) time out / are blocked. Use GitHub Pages (`gh-pages`) for HTTPS testing on phones away from local Wi-Fi.
 
+## 1b. Local HTTPS build for the phone / RG477V (home network)
+
+```bash
+npm run dev:lan   # https://<mac-lan-ip>:5173  (self-signed cert in .certs/, gitignored)
+```
+
+- Phone/RG477V and Mac on the same Wi-Fi. First visit: Chrome warns about the certificate → Advanced → Proceed. HTTPS is required for AudioWorklet (TAPE deck, TAPE-1, DRIVE), the Gamepad API and persistent storage.
+- Regenerate the cert if the Mac's LAN IP changes:
+  `openssl req -x509 -newkey rsa:2048 -nodes -days 825 -keyout .certs/key.pem -out .certs/cert.pem -subj "/CN=ROOMSERVICE LAN" -addext "subjectAltName=IP:<lan-ip>,IP:127.0.0.1,DNS:localhost"`
+- **Local packs:** drop sample-pack ZIPs you are licensed to use into `local-packs/` (gitignored). The dev server serves them and the LIBRARY imports them automatically on first launch. They are never part of `npm run build`, so they never reach GitHub Pages.
+
 ## 2. Subpath-Safe PWA Checklist
 
 Because GitHub Pages serves this project under `/ROOMSERVICE/` (`https://nonothinginc.github.io/ROOMSERVICE/`):

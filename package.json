@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "dev:lan": "LAN_HTTPS=1 vite --host"
   },
   "dependencies": {
     "tone": "^15.0.4"

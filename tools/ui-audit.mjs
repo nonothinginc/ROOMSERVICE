@@ -76,7 +76,7 @@ const geomCheck = () => {
 };
 
 for (const vp of viewports) {
-  const ctx = await browser.newContext({ viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: vp.dpr, hasTouch: true });
+  const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: vp.w, height: vp.h }, deviceScaleFactor: vp.dpr, hasTouch: true });
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', (e) => errs.push(e.message));
@@ -132,7 +132,7 @@ for (const vp of viewports) {
   report.push({ vp: vp.tag, name: 'wheel-repeat', issues: wheelOk === 4 ? [] : [`WHEEL opened ${wheelOk}/4`], errs: [] });
 
   // Overlays via wheel: MPC(4) CHORD(5) LEAD(6) LAB(7)
-  for (const [i, n] of [[4, 'MPC'], [5, 'CHORD'], [6, 'LEAD'], [7, 'LAB']]) {
+  for (const [i, n] of [[4, 'MPC'], [5, 'CHORD'], [6, 'LEAD'], [7, 'TAPE']]) {
     await wheelPick(i);
     await shot(`30-${n}`);
     await esc();
@@ -152,6 +152,13 @@ for (const vp of viewports) {
   await rail('ROLL');
   if (await clickText('.ctx-chip', '^RIFF')) { await shot('43-riff'); await page.evaluate(() => document.querySelector('.overlay-backdrop .icon-only')?.click()); }
   if (await clickText('.ctx-chip', '^⋯')) { await shot('44-roll-more'); await page.evaluate(() => document.querySelector('.overlay-backdrop .icon-only')?.click()); }
+  // Library + LAB from the rail
+  await rail('LIBRARY');
+  await shot('46-library');
+  await page.evaluate(() => document.querySelector('.overlay-backdrop .icon-only')?.click());
+  await rail('LAB VAULT');
+  await shot('47-lab');
+  await page.evaluate(() => document.querySelector('.overlay-backdrop .icon-only')?.click());
   // Project
   await rail('PROJECT / ARCHIVE');
   await shot('45-project');

@@ -74,6 +74,7 @@ ROOMSERVICE/
 - **Native AudioContext:** Tone runs on a native `window.AudioContext` (not the standardized-audio-context wrapper) so native constructors (`AudioWorkletNode` in TAPE-1/DRIVE) work and per-hit `connect()` skips whole-graph cycle detection. Never reintroduce `new Tone.Context({...})` without `context:`.
 - **Context Tuning (`src/audio/engine.js`):** Configured on init with `latencyHint: 'interactive'`, `lookAhead: 0.02` (`20ms`), and `updateInterval: 0.015`.
 - **Zero-Wait Live Triggers:** `Tone.immediate()` is used across all voice monotonic schedulers (`mono303.js`, `drum8.js`, `polyfm.js`, `grain1.js`), and `engine.previewNote()` executes synchronously whenever `store.getState().audioUnlocked` is true.
+- **Master chain:** `masterBus → punchFx → TAPE deck worklet → masterGain → limiter → destination` (deck spliced in once its worklet loads; idle is pass-through).
 - **Channel Routing:**
   - `Instrument Slot 0` -> `[Active Insert FX 1..N]` -> `Channel Fader` -> `Panner` -> `Master Bus` -> `Master Gain` -> `Limiter` -> `Destination`.
   - Default `sendA` (Delay Return) and `sendB` (Reverb Return) gains are initialized to **`0`** on all 8 tracks.

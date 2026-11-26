@@ -1,4 +1,5 @@
 import { engine } from '../../audio/engine.js';
+import { SCREEN, drawReel } from '../tape-art.js';
 import { getDevice, getDevicesByCategory } from '../../device-registry.js';
 import { store } from '../../state/store.js';
 import { attachLongPress } from '../components/longpress.js';
@@ -300,60 +301,9 @@ const FORMULA_NAMES = ['456', 'FERRIC', 'CHROME', 'LO-FI'];
 const HEAD_BUMP_HZ = [45, 58, 88, 128];
 const LOSS_CUTOFF_HZ = [5200, 9200, 14800, 19500];
 
-function drawTeReel(ctx, cx, cy, r, angle, tapeFrac, ink, inkDim, border, accent, isHot) {
-  // Outer flange
-  ctx.strokeStyle = border;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // Magnetic tape pack ring
-  const hubR = r * 0.34;
-  const packR = hubR + (r * 0.56) * Math.max(0.2, Math.min(1, tapeFrac));
-  ctx.save();
-  ctx.globalAlpha = 0.14;
-  ctx.fillStyle = ink;
-  ctx.beginPath();
-  ctx.arc(cx, cy, packR, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-
-  ctx.strokeStyle = inkDim;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(cx, cy, packR, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // 3-spoke Teenage Engineering style reel cutout
-  for (let i = 0; i < 3; i++) {
-    const a0 = angle + (i * Math.PI * 2) / 3;
-    const a1 = a0 + 0.62;
-    ctx.strokeStyle = ink;
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.66, a0, a1);
-    ctx.stroke();
-
-    // Spoke rib
-    ctx.strokeStyle = inkDim;
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.moveTo(cx + Math.cos(a0) * hubR, cy + Math.sin(a0) * hubR);
-    ctx.lineTo(cx + Math.cos(a0) * r * 0.9, cy + Math.sin(a0) * r * 0.9);
-    ctx.stroke();
-  }
-
-  // Center hub & pin
-  ctx.fillStyle = isHot ? accent : ink;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r * 0.14, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = ink;
-  ctx.lineWidth = 1.4;
-  ctx.beginPath();
-  ctx.arc(cx, cy, hubR, 0, Math.PI * 2);
-  ctx.stroke();
+function drawTeReel(ctx, cx, cy, r, angle, tapeFrac) {
+  // Shared detailed reel (same art as the TAPE deck)
+  drawReel(ctx, cx, cy, r, angle, Math.max(0.12, Math.min(1, tapeFrac)));
 }
 
 function drawHysteresisLoop(ctx, x, y, pw, ph, vizData, accent, ink, inkDim, border) {
@@ -758,7 +708,8 @@ function drawVisualizer(canvas, vizData, accent, ink, inkDim, bg, border, isExpa
     }
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    drawTapeLcd(ctx, cssW, cssH, vizData, accent, ink, inkDim, bg, border, isExpanded);
+    // Tape display is a black screen in both finishes
+    drawTapeLcd(ctx, cssW, cssH, vizData, SCREEN.accent, SCREEN.ink, SCREEN.dim, SCREEN.bg, SCREEN.hair, isExpanded);
     ctx.restore();
     return;
   }

@@ -3,7 +3,7 @@
 **Last Updated:** 2026-11-26  
 **Latest Source Commit (`main`):** see `git log` (Skin v2 reskin, session 03)  
 **Latest Live Deploy (`gh-pages`):** Skin v2 at `https://nonothinginc.github.io/ROOMSERVICE/`, pre-reskin look at `/ROOMSERVICE/legacy/` (tag `skin-legacy-v1`)  
-**Service Worker Cache:** `roomservice-v13` ([public/sw.js](../public/sw.js))  
+**Service Worker Cache:** `roomservice-v14` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -77,6 +77,8 @@ Every decision below came directly from user feedback and **must not be regresse
 ## 3. Open Items & Immediate Next Priorities
 
 - **Pending User Review:** Skin v2 reskin + ring-button fix, playlist LOOP + >8-bar songs, playlist SAMPLE editor, Brickchord JAM (session 03). Compare look against `/ROOMSERVICE/legacy/`.
+- **Local build:** `npm run dev:lan` → https://192.168.1.113:5173 (self-signed). `local-packs/*.zip` auto-seed the LIBRARY (local only).
+- **TAPE deck** on the master (mode wheel / MIX → TAPE). TAPE-1 + DRIVE worklets now genuinely run (native AudioContext).
 - **Sample packs are never committed/deployed** (public repo; third-party licences). Users import packs on-device via LIBRARY.
 - **Next (agreed direction pending):** unification plan in `docs/sessions/2026-11-26-session-03.md` (LAB → LIBRARY CLIPS, JAM on all decks, factory kits in LIBRARY).
 - **Ideas not built yet:** JAM for LEAD deck and MPC pads; take comping (pick a take from the LAB back onto the loop); gamepad control inside the SAMPLE editor.
