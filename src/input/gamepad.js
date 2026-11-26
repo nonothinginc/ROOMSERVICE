@@ -41,6 +41,7 @@ class InputController {
     this.keyALongFired = false;
 
     this.handlers = new Set();
+    this.rawPadListeners = new Set();
     this.diagState = {
       connected: false,
       id: 'KEYBOARD',
@@ -52,6 +53,21 @@ class InputController {
   onAction(fn) {
     this.handlers.add(fn);
     return () => this.handlers.delete(fn);
+  }
+
+  onRawPad(fn) {
+    this.rawPadListeners.add(fn);
+    return () => this.rawPadListeners.delete(fn);
+  }
+
+  dispatchRawPad(payload) {
+    for (const fn of this.rawPadListeners) {
+      try {
+        fn(payload);
+      } catch (err) {
+        console.error('[input] rawPad handler error', err);
+      }
+    }
   }
 
   dispatch(action) {
@@ -91,6 +107,24 @@ class InputController {
     if (isRepeat) return;
 
     const st = store.getState();
+
+    // Brickchord live keyboard mode when Brickchord performance overlay is active
+    if (st.detailOverlay?.type === 'brickchord') {
+      if (code === 'Space') {
+        engine.togglePlay();
+        return;
+      }
+      if (code === 'KeyT') {
+        store.toggleTheme();
+        return;
+      }
+      if (code === 'Escape' || code === 'Backspace') {
+        st.detailOverlay = null;
+        store.emit('overlay', null);
+        return;
+      }
+      return;
+    }
 
     // Undo / Redo keyboard shortcuts
     if ((e.metaKey || e.ctrlKey) && code === 'KeyZ') {
@@ -230,6 +264,30 @@ class InputController {
       this.diagState.buttons.fill(false);
       this.diagState.buttons[BTN.L2] = this.keysDown.has('ShiftLeft') || this.keysDown.has('ShiftRight');
 
+      if (store.getState().detailOverlay?.type === 'brickchord') {
+        const kbBtns = new Array(16).fill(false);
+        kbBtns[BTN.LEFT] = this.keysDown.has('Digit1');
+        kbBtns[BTN.UP] = this.keysDown.has('Digit2');
+        kbBtns[BTN.RIGHT] = this.keysDown.has('Digit3');
+        kbBtns[BTN.DOWN] = this.keysDown.has('Digit4');
+        kbBtns[BTN.X] = this.keysDown.has('Digit5');
+        kbBtns[BTN.A] = this.keysDown.has('Digit6');
+        kbBtns[BTN.B] = this.keysDown.has('Digit7');
+        kbBtns[BTN.Y] = this.keysDown.has('ShiftLeft') || this.keysDown.has('ShiftRight');
+        kbBtns[BTN.L1] = this.keysDown.has('KeyQ');
+        kbBtns[BTN.R1] = this.keysDown.has('KeyE');
+        kbBtns[BTN.L2] = this.keysDown.has('KeyZ');
+        kbBtns[BTN.R2] = this.keysDown.has('KeyC');
+        this.dispatchRawPad({
+          buttons: kbBtns,
+          prevButtons: [...this.prevButtons],
+          axes: [kbLx, kbLy, kbRx, kbRy],
+          now
+        });
+        this.prevButtons = kbBtns;
+        return;
+      }
+
       if (kbLx || kbLy || kbRx || kbRy) {
         this.dispatch({
           type: 'STICKS',
@@ -265,6 +323,36 @@ class InputController {
     // Combo: L2 + Select => Theme toggle
     if (l2 && justPressed(BTN.SELECT)) {
       store.toggleTheme();
+    }
+
+    // Raw performance passthrough when Brickchord RG477V overlay is open
+    const activeSt = store.getState();
+    if (activeSt.detailOverlay?.type === 'brickchord') {
+      if (justPressed(BTN.START)) {
+        engine.togglePlay();
+      }
+      // Exit cleanly with SELECT + B so plain B stays usable as chord vii°!
+      if (cur[BTN.SELECT] && justPressed(BTN.B)) {
+        activeSt.detailOverlay = null;
+        store.emit('overlay', null);
+        for (let i = 0; i < 16; i++) this.prevButtons[i] = cur[i];
+        return;
+      }
+
+      const rawLx = applyDeadzone(pad.axes[0] || 0) || kbLx;
+      const rawLy = applyDeadzone(pad.axes[1] || 0) || kbLy;
+      const rawRx = applyDeadzone(pad.axes[2] || 0) || kbRx;
+      const rawRy = applyDeadzone(pad.axes[3] || 0) || kbRy;
+      this.diagState.axes = [rawLx, rawLy, rawRx, rawRy];
+
+      this.dispatchRawPad({
+        buttons: [...cur],
+        prevButtons: [...this.prevButtons],
+        axes: [rawLx, rawLy, rawRx, rawRy],
+        now
+      });
+      for (let i = 0; i < 16; i++) this.prevButtons[i] = cur[i];
+      return;
     }
 
     // Combo: R2 + Start => Play/Stop

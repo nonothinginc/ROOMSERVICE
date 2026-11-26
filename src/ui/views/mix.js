@@ -939,7 +939,9 @@ export function createMixView() {
           st.detailOverlay =
             slot.deviceId === 'drum8'
               ? { type: 'mpc', trackId: tid }
-              : { type: 'dsp', trackId: tid, slotIdx };
+              : slot.deviceId === 'brickchord'
+                ? { type: 'brickchord', trackId: tid }
+                : { type: 'dsp', trackId: tid, slotIdx };
           store.emit('overlay', st.detailOverlay);
         };
 
@@ -955,6 +957,15 @@ export function createMixView() {
               store.emit('overlay', st.detailOverlay);
             };
             row.appendChild(mpcBtn);
+          } else if (slot.deviceId === 'brickchord') {
+            const padBtn = document.createElement('button');
+            padBtn.className = 'ctx-chip active';
+            padBtn.textContent = 'PAD';
+            padBtn.onclick = () => {
+              st.detailOverlay = { type: 'brickchord', trackId: tid };
+              store.emit('overlay', st.detailOverlay);
+            };
+            row.appendChild(padBtn);
           }
           const swapBtn = document.createElement('button');
           swapBtn.className = 'ctx-chip';

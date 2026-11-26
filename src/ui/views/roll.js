@@ -69,6 +69,15 @@ export function createRollView() {
     store.emit('overlay', st.detailOverlay);
   };
 
+  const brickChip = document.createElement('button');
+  brickChip.className = 'ctx-chip active';
+  brickChip.textContent = 'CHORD';
+  brickChip.onclick = () => {
+    const st = store.getState();
+    st.detailOverlay = { type: 'brickchord', trackId: st.selectedTrackId };
+    store.emit('overlay', st.detailOverlay);
+  };
+
   const lenChip = document.createElement('button');
   lenChip.className = 'ctx-chip';
   lenChip.title = 'Pattern Length (Beats / Steps)';
@@ -164,6 +173,7 @@ export function createRollView() {
   strip.append(
     trackChip,
     mpcChip,
+    brickChip,
     scaleChip,
     Object.assign(document.createElement('div'), { className: 'ctx-spacer' }),
     lenChip,
@@ -245,6 +255,12 @@ export function createRollView() {
     const st = store.getState();
     const tr = st.tracks[st.selectedTrackId];
     return tr?.inserts[0]?.deviceId === 'drum8';
+  }
+
+  function isBrickchordTrack() {
+    const st = store.getState();
+    const tr = st.tracks[st.selectedTrackId];
+    return tr?.inserts[0]?.deviceId === 'brickchord';
   }
 
   function getKeyWidth() {
@@ -338,7 +354,13 @@ export function createRollView() {
     () => {
       if (dragState?.moved || pinchState || activePointers.size > 1) return;
       const st = store.getState();
-      st.detailOverlay = isDrumTrack() ? { type: 'mpc', trackId: st.selectedTrackId } : { type: 'roll' };
+      if (isDrumTrack()) {
+        st.detailOverlay = { type: 'mpc', trackId: st.selectedTrackId };
+      } else if (isBrickchordTrack()) {
+        st.detailOverlay = { type: 'brickchord', trackId: st.selectedTrackId };
+      } else {
+        st.detailOverlay = { type: 'roll' };
+      }
       store.emit('overlay', st.detailOverlay);
     },
     420,
@@ -844,9 +866,11 @@ export function createRollView() {
     const pat = st.patterns[st.activePatternId];
     const patLen = pat?.length || 16;
     const drumMode = isDrumTrack();
+    const brickMode = isBrickchordTrack();
     trackChip.textContent = `${tr.code} ${tr.name} ▾`;
 
     mpcChip.style.display = drumMode ? 'inline-flex' : 'none';
+    brickChip.style.display = brickMode ? 'inline-flex' : 'none';
     scaleChip.style.display = drumMode ? 'none' : 'inline-flex';
 
     if (drumMode) {

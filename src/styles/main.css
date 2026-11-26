@@ -1775,3 +1775,193 @@ body {
     height: 30px !important;
   }
 }
+
+/* Brickchord RG477V Performance Overlay */
+.overlay-panel.bc-panel {
+  width: min(960px, 98vw);
+  max-height: 96vh;
+}
+
+.bc-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bc-hdr {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.bc-hdr-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.bc-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.bc-seg-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.bc-seg-bar {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bc-stage {
+  display: grid;
+  grid-template-columns: 1fr 1.85fr 1fr;
+  gap: 8px;
+  padding: 8px 12px;
+  min-height: 120px;
+}
+
+.bc-hud-canvas {
+  width: 100%;
+  height: clamp(118px, 24vh, 176px);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  touch-action: none;
+  display: block;
+}
+
+.bc-deck {
+  display: grid;
+  grid-template-columns: 1.25fr 0.85fr 1.15fr;
+  gap: 10px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--border);
+  flex: 1;
+  min-height: 0;
+  align-items: stretch;
+}
+
+.bc-pad-cluster {
+  display: grid;
+  gap: 6px;
+}
+
+.bc-dpad-grid {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+}
+
+.bc-dpad-0 { grid-column: 1; grid-row: 2; }
+.bc-dpad-1 { grid-column: 2; grid-row: 1; }
+.bc-dpad-2 { grid-column: 3; grid-row: 2; }
+.bc-dpad-3 { grid-column: 2; grid-row: 3; }
+
+.bc-face-grid {
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+}
+
+.bc-face-4 { grid-column: 1; grid-row: 2; }
+.bc-face-5 { grid-column: 2; grid-row: 3; }
+.bc-face-6 { grid-column: 3; grid-row: 2; }
+
+.bc-pad {
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 6px 8px;
+  min-height: 44px;
+  touch-action: none;
+  user-select: none;
+  transition: border-color 80ms, background 80ms;
+}
+
+.bc-pad.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #F2F0EC;
+}
+
+.bc-pad-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  opacity: 0.72;
+}
+
+.bc-pad-name {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+}
+
+.bc-mod-col {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.bc-mod-pill {
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--ink-dim);
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 7px 8px;
+  touch-action: none;
+  user-select: none;
+}
+
+.bc-mod-pill.active {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+@media (max-width: 720px) {
+  .bc-seg-strip {
+    grid-template-columns: 1fr;
+  }
+  .bc-stage {
+    grid-template-columns: 1fr 1fr;
+  }
+  .bc-hud-main {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+  .bc-deck {
+    grid-template-columns: 1fr;
+  }
+  .bc-mod-col {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .bc-mod-pill {
+    flex: 1;
+    min-width: 74px;
+  }
+}

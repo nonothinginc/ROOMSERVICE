@@ -154,7 +154,22 @@ export function renderInstMenuModal(modalEl) {
       store.emit('overlay', st.detailOverlay);
     };
 
-    instGrid.append(samplerBtn, mpcBtn);
+    // + BRICKCHORD
+    const brickBtn = document.createElement('button');
+    brickBtn.className = 'ctx-chip';
+    brickBtn.style.height = '38px';
+    brickBtn.style.justifyContent = 'space-between';
+    brickBtn.innerHTML = `<span>+ BRICKCHORD</span><span>PAD</span>`;
+    brickBtn.onclick = () => {
+      const targetId = mode === 'ADD' ? store.addInstrumentTrack('brickchord') : st.selectedTrackId;
+      if (st.tracks[targetId]?.inserts[0]?.deviceId !== 'brickchord') {
+        store.addInsertDevice(targetId, 'brickchord');
+      }
+      st.detailOverlay = { type: 'brickchord', trackId: targetId };
+      store.emit('overlay', st.detailOverlay);
+    };
+
+    instGrid.append(samplerBtn, mpcBtn, brickBtn);
     body.append(trkHdr, trkGrid, instHdr, instGrid);
     modalEl.append(hdr, body);
   }

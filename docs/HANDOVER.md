@@ -1,9 +1,9 @@
 # ROOMSERVICE — Session Handover Hub
 
 **Last Updated:** 2026-11-26  
-**Latest Source Commit (`main`):** `8a2af16` (`Add authentic 808/909 samples & VA circuit DSP, Piano Roll pinch-zoom & 4-beat/multi-bar controls, live REC overdub, log faders, pan & FX reorder`)  
-**Latest Live Deploy (`gh-pages`):** `c87a0e8` (`status: built`, `HTTP/2 200` at https://nonothinginc.github.io/ROOMSERVICE/)  
-**Service Worker Cache:** `roomservice-v6` ([public/sw.js](../public/sw.js))  
+**Latest Source Commit (`main`):** pending commit (`Brickchord RG477V pocket chord synth`)  
+**Latest Live Deploy (`gh-pages`):** pending push (`https://nonothinginc.github.io/ROOMSERVICE/`)  
+**Service Worker Cache:** `roomservice-v7` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -47,6 +47,9 @@ Every decision below came directly from user feedback and **must not be regresse
    - Discrete params like `DRUM-8` `MODE`/`KIT`, `MONO-303` `WAVE`, and `TAPE-1` `IPS`/`TAPE` declare `control: 'segmented'`. Compact cards stay `<= 6` params while optional `meta.extendedParams` unlock inside full-screen hardware detail overlays.
    - `DRUM-8` features per-pad modulation (`P.TUNE`, `P.ENV`, `ATK`, `DEC`, `LP/HP/BP CUT`, `RES`, `DRV`, `PAN`, `LVL`) in both `RACK` & `SYNTH` modes plus global bus sculpting (`PUNCH`, `GLUE`, `SUB`, `AIR`, `HPF`, `WIDTH`) in the `MOD | SLICE | MAP | GLOBAL` MPC tabs.
    - `TAPE-1` (`src/devices/tape.js`) runs a 2x oversampled RK2 Jiles-Atherton hysteresis + modulated W/F delay `AudioWorklet` (`roomservice-tape-hysteresis`) paired with a real-time Teenage Engineering–inspired vector LCD (`drawTapeLcd`) showing twin rotating reels, magnetic head block, live `B-H` hysteresis loop, and expanded EQ/VU telemetry.
+8. **Brickchord Pocket Chord Synth for Anbernic RG477V ([src/devices/brickchord.js](../src/devices/brickchord.js), [src/audio/brickchord-theory.js](../src/audio/brickchord-theory.js), [src/ui/views/brickchord-pad.js](../src/ui/views/brickchord-pad.js)):**
+   - Inspired by `michaeltietjen/brickchord` (MIT): auto-discovered DSP instrument with 6 polyphonic engines (`JUNO | BRASS | PWM | PLUCK | FM | ORGAN`), 6 performance styles (`CHORD | FOLK | POP | HARP | ARP | REP`), resonant LP + wet ping-pong delay/reverb bus, and dedicated dry punchy synth bass follower.
+   - Dedicated RG477V Performance Overlay (`PAD` / `CHORD` chip across `ROLL`, `DSP`, `MIX`, `inst-menu`, `triage`) switches `src/input/gamepad.js` into **raw 120Hz performance passthrough mode**: D-Pad (`I..IV`), `X/A/B` (`V..vii°`), held modifiers (`Y=FLIP`, `L1=7TH`, `R1=SUS4`, `L1+R1=9TH`), Left Hall Stick (8-way chord bends), Right Hall Stick (Cutoff X / Wet & Res Y + `R3` Hold), `L2` Latch, `L3` Style cycle, `R2` chord step-stamp to Pattern (`engine.recordChordToPattern`), `SELECT + D-Pad/Y` Key/Oct/Scale, and `SELECT + B` exit. Full multi-touch mirror on phones.
 
 ---
 

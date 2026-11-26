@@ -408,6 +408,12 @@ class AudioEngine {
     return null;
   }
 
+  getBrickchordNode(trackId) {
+    const entry = this.channels[trackId]?.insertNodes[0];
+    if (entry?.deviceId === 'brickchord') return entry.node;
+    return null;
+  }
+
   getDrumSources(trackId) {
     const node = this.getDrumNode(trackId);
     if (node?.getActiveSources) return node.getActiveSources();
@@ -751,6 +757,51 @@ class AudioEngine {
     } else {
       this.unlock().then(fire);
     }
+  }
+
+  recordChordToPattern(trackId, midiNotes, durSteps = 4, vel = 0.85, advanceStep = false) {
+    if (!midiNotes || midiNotes.length === 0) return false;
+    const st = store.getState();
+    const pat = st.patterns[st.activePatternId];
+    if (!pat) return false;
+
+    const patLen = pat.length || 16;
+    const snap = st.gridSnapAuto ? 1 : Math.max(0.25, st.gridSnap || 1);
+    const rawStep = st.isPlaying
+      ? st.currentStep % patLen
+      : Math.floor(st.currentStep || 0) % patLen;
+    const qStep = st.isPlaying
+      ? (Math.round(rawStep / snap) * snap) % patLen
+      : Math.max(0, rawStep);
+
+    if (!st.isPlaying) {
+      store.pushHistory('BRICKCHORD STAMP');
+    }
+
+    const curNotes = store.getActiveNotes(trackId, st.activePatternId);
+    const uniqueMidi = [...new Set(midiNotes.map((m) => Math.round(m)))];
+    const filtered = curNotes.filter(
+      (n) => !(Math.abs(n.step - qStep) < 0.05 && uniqueMidi.includes(Math.round(n.midi)))
+    );
+    const noteLen = Math.max(1, Math.min(durSteps, patLen - qStep));
+    const normVel = Math.max(25, Math.min(127, Math.round(vel * 127)));
+    const added = uniqueMidi.map((midi) => ({
+      id: nextId('n'),
+      step: qStep,
+      len: noteLen,
+      midi,
+      vel: normVel,
+      prob: 100,
+      slide: false,
+      cutoff: 0
+    }));
+
+    store.setActiveNotes([...filtered, ...added], trackId, st.activePatternId, st.isPlaying ? 'REC CHORD' : null);
+    if (!st.isPlaying && advanceStep) {
+      st.currentStep = (qStep + durSteps) % patLen;
+      store.emit('step', st.currentStep);
+    }
+    return true;
   }
 
   onStep(time) {

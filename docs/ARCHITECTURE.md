@@ -12,17 +12,19 @@ ROOMSERVICE/
 │   ├── samples/
 │   │   ├── 808/*.wav            # Authentic Roland TR-808 WAV kit (oramics/sampled)
 │   │   └── 909/*.wav            # Authentic Roland TR-909 WAV kit (oramics/sampled)
-│   └── sw.js                    # Offline cache ('roomservice-v6') & cache fallback
+│   └── sw.js                    # Offline cache ('roomservice-v7') & cache fallback
 ├── src/
 │   ├── main.js                  # 3-zone chassis bootstrap, modal router, autosave & 120fps loop
 │   ├── device-registry.js       # import.meta.glob('./devices/*.js', { eager: true }) auto-discovery (+ extendedParams)
-│   ├── styles/main.css          # Dark/Light theme tokens, 3-zone rails, Mix/ARR/DSP/MPC/Triage styling
+│   ├── styles/main.css          # Dark/Light theme tokens, 3-zone rails, Mix/ARR/DSP/MPC/Brickchord/Triage styling
 │   ├── audio/
-│   │   ├── engine.js            # Tone.js v15 AudioEngine, sub-16th clock, live REC, IEC stereo meters, ZIP I/O
+│   │   ├── engine.js            # Tone.js v15 AudioEngine, sub-16th clock, live REC/chord stamp, IEC stereo meters, ZIP I/O
 │   │   ├── analog-drums.js      # Virtual analog TR-808 (io-808) & TR-909 WebAudio circuit DSP engines
 │   │   ├── bpm-detector.js      # Peak & transient onset detection for imported/mic audio clips
+│   │   ├── brickchord-theory.js # Scale chords (Maj/Min/Dor/Mixo), smooth voice-leading & 8-way stick bends
 │   │   └── drum-kits.js         # Authentic 808/909 WAV loader + instant offline fallback + USER sample pool
 │   ├── devices/
+│   │   ├── brickchord.js        # Brickchord pocket chord synth (6 patches, 6 styles, dry bass, wet delay/reverb)
 │   │   ├── mono303.js           # Acid mono synth (SAW|SQR segmented + FL slide portamento)
 │   │   ├── drum8.js             # Hybrid 8-voice Synth & 16-pad Sampler Rack + per-pad mod & global bus FX
 │   │   ├── grain1.js            # Granular synth + grain cloud particle visualizer
@@ -34,7 +36,7 @@ ROOMSERVICE/
 │   │   ├── delay.js             # Ping-pong delay + stereo tap dot matrix ('delay-grid')
 │   │   └── verb.js              # Reverb + concentric room contour visualizer ('reverb-depth')
 │   ├── input/
-│   │   └── gamepad.js           # 120Hz Web Gamepad API polling for RG477V controls & modifiers
+│   │   └── gamepad.js           # 120Hz Web Gamepad API polling + Brickchord raw RG477V performance passthrough
 │   ├── state/
 │   │   ├── scales.js            # 15 scales, Euclidean pulses, riff/melody randomizer engine
 │   │   └── store.js             # Global reactive store, 200-step undo/redo, 50-slot sessions, LAB silo
@@ -55,7 +57,8 @@ ROOMSERVICE/
 │           ├── arr.js           # Playlist timeline, bar ruler, horizontal touch/rail pan, FOLLOW, clip rename/menu
 │           ├── mix.js           # Scrollable channels + returns & pinned Master dock w/ 18-seg meters & dB scales
 │           ├── dsp.js           # Auto-generated modular DSP strip w/ segmented controls & custom visualizers
-│           └── mpc-editor.js    # Wireframe 4x4 MPC pad editor + needle chopper + SLICE/ZONE/MAP tabs
+│           ├── mpc-editor.js    # Wireframe 4x4 MPC pad editor + needle chopper + SLICE/ZONE/MAP tabs
+│           └── brickchord-pad.js # Anbernic RG477V Brickchord performance overlay (D-Pad/ABXY/Dual Hall Sticks)
 ```
 
 ## 2. Audio Signal Flow & Latency Model

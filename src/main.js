@@ -9,6 +9,7 @@ import { renderInstMenuModal } from './ui/inst-menu.js';
 import { renderLabOverlay } from './ui/lab.js';
 import { renderTriageModal } from './ui/triage.js';
 import { createArrView } from './ui/views/arr.js';
+import { handleBrickchordRawPad, renderBrickchordOverlay, tickBrickchordOverlay } from './ui/views/brickchord-pad.js';
 import { createDspView } from './ui/views/dsp.js';
 import { createMixView } from './ui/views/mix.js';
 import { renderMpcEditor, tickMpcOverlay } from './ui/views/mpc-editor.js';
@@ -176,6 +177,9 @@ function boot() {
         views.DSP.renderDetailOverlay(panel);
       } else if (st.detailOverlay.type === 'mpc') {
         renderMpcEditor(panel, st.detailOverlay.trackId);
+      } else if (st.detailOverlay.type === 'brickchord') {
+        panel.classList.add('bc-panel');
+        renderBrickchordOverlay(panel, st.detailOverlay.trackId);
       }
       overlayRoot.appendChild(panel);
       return;
@@ -231,6 +235,10 @@ function boot() {
     views[st.view]?.handleAction?.(action);
   });
 
+  input.onRawPad((pad) => {
+    handleBrickchordRawPad(pad);
+  });
+
   mountActiveView();
   renderModalsAndOverlays();
 
@@ -249,6 +257,7 @@ function boot() {
     dotMatrix.tick();
     rightRail.tick();
     tickMpcOverlay();
+    tickBrickchordOverlay();
     views.DSP.tickOverlay?.();
     const activeView = views[store.getState().view];
     activeView?.tick?.();

@@ -256,7 +256,7 @@ export function renderTriageModal(modalEl) {
       btn.onclick = async () => {
         await engine.unlock();
         store.resetProjectBlank(dev.meta.id);
-        const modeMap = { mono303: 'ACID', polyfm: 'ARP', grain1: 'WALK' };
+        const modeMap = { mono303: 'ACID', polyfm: 'ARP', grain1: 'WALK', brickchord: 'CHORD' };
         const res = generateRiff({
           rootIdx: st.scaleRoot,
           scaleId: st.scaleId,
@@ -305,9 +305,12 @@ export function renderTriageModal(modalEl) {
       btn.onclick = async () => {
         await engine.unlock();
         const root = p.root === -1 ? Math.floor(Math.random() * 12) : p.root;
-        store.resetProjectBlank('polyfm');
+        store.resetProjectBlank('brickchord');
         st.scaleRoot = root;
         st.scaleId = p.scale;
+        const bcScaleMap = { MIN: 1, DOR: 2, PHR: 1, HIRA: 1, LYD: 0 };
+        store.setDeviceParam(0, 0, 'key', root);
+        store.setDeviceParam(0, 0, 'scale', bcScaleMap[p.scale] ?? 1);
         const res = generateRiff({
           rootIdx: root,
           scaleId: p.scale,

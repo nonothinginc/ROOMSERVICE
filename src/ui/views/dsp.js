@@ -684,6 +684,59 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
   drawRowVu('OUT', outPk, vuTop + rowGap);
 }
 
+function drawBrickchordViz(ctx, w, h, vizData, accent, ink, inkDim, bg, border) {
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(4.5, 4.5, w - 9, h - 9);
+
+  const chordName = vizData.chordName || '—';
+  const roman = vizData.roman || '';
+  const patches = ['JUNO', 'BRASS', 'PWM', 'PLUCK', 'FM', 'ORGAN'];
+  const styles = ['CHORD', 'FOLK', 'POP', 'HARP', 'ARP', 'REP'];
+
+  ctx.fillStyle = inkDim;
+  ctx.font = '700 11px "Geist Mono", monospace';
+  ctx.textBaseline = 'top';
+  ctx.textAlign = 'left';
+  ctx.fillText(`${patches[vizData.patchIdx] || 'JUNO'} // ${styles[vizData.styleIdx] || 'CHORD'}`, 14, 12);
+
+  if (roman) {
+    ctx.fillStyle = vizData.active ? accent : inkDim;
+    ctx.textAlign = 'right';
+    ctx.fillText(roman, w - 14, 12);
+  }
+
+  ctx.fillStyle = vizData.active ? ink : inkDim;
+  ctx.font = '700 32px "Geist Mono", monospace';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(chordName, w * 0.5, h * 0.44);
+
+  // Live waveform strip
+  const scope = vizData.scope || [];
+  if (scope.length > 4) {
+    const midY = h * 0.78;
+    ctx.strokeStyle = vizData.active ? accent : inkDim;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    const step = Math.max(1, Math.floor(scope.length / 64));
+    let started = false;
+    for (let i = 0; i < scope.length; i += step) {
+      const px = 14 + (i / (scope.length - 1)) * (w - 28);
+      const py = midY - scope[i] * (h * 0.14);
+      if (!started) {
+        ctx.moveTo(px, py);
+        started = true;
+      } else {
+        ctx.lineTo(px, py);
+      }
+    }
+    ctx.stroke();
+  }
+}
+
 function drawVisualizer(canvas, vizData, accent, ink, inkDim, bg, border, isExpanded = false) {
   const ctx = canvas.getContext('2d');
   if (!vizData) {
@@ -728,6 +781,10 @@ function drawVisualizer(canvas, vizData, accent, ink, inkDim, bg, border, isExpa
   }
   if (vizData.type === 'delay-grid') {
     drawDelayGrid(ctx, w, h, vizData, accent, ink, inkDim, bg, border);
+    return;
+  }
+  if (vizData.type === 'brickchord') {
+    drawBrickchordViz(ctx, w, h, vizData, accent, ink, inkDim, bg, border);
     return;
   }
 
@@ -853,9 +910,13 @@ export function createDspView() {
 
       const openDetail = () => {
         st.selectedDeviceSlotIdx = slotIdx;
-        st.detailOverlay = slot.deviceId === 'drum8'
-          ? { type: 'mpc', trackId: tr.id }
-          : { type: 'dsp', trackId: tr.id, slotIdx };
+        if (slot.deviceId === 'drum8') {
+          st.detailOverlay = { type: 'mpc', trackId: tr.id };
+        } else if (slot.deviceId === 'brickchord') {
+          st.detailOverlay = { type: 'brickchord', trackId: tr.id };
+        } else {
+          st.detailOverlay = { type: 'dsp', trackId: tr.id, slotIdx };
+        }
         store.emit('overlay', st.detailOverlay);
       };
 
@@ -869,6 +930,16 @@ export function createDspView() {
           store.emit('overlay', st.detailOverlay);
         };
         actions.appendChild(mpcBtn);
+      } else if (slotIdx === 0 && slot.deviceId === 'brickchord') {
+        const padBtn = document.createElement('button');
+        padBtn.className = 'ctx-chip active';
+        padBtn.textContent = 'PAD';
+        padBtn.onclick = (e) => {
+          e.stopPropagation();
+          st.detailOverlay = { type: 'brickchord', trackId: tr.id };
+          store.emit('overlay', st.detailOverlay);
+        };
+        actions.appendChild(padBtn);
       } else if (slotIdx === 0) {
         const swap = document.createElement('button');
         swap.className = 'ctx-chip';
@@ -1082,7 +1153,13 @@ export function createDspView() {
         st.selectedParamIdx = (st.selectedParamIdx + (action.dir === 'DOWN' ? 1 : -1) + count) % count;
       }
     } else if (action.type === 'A_HOLD') {
-      st.detailOverlay = { type: 'dsp', trackId: tr.id, slotIdx: st.selectedDeviceSlotIdx };
+      if (slot?.deviceId === 'drum8') {
+        st.detailOverlay = { type: 'mpc', trackId: tr.id };
+      } else if (slot?.deviceId === 'brickchord') {
+        st.detailOverlay = { type: 'brickchord', trackId: tr.id };
+      } else {
+        st.detailOverlay = { type: 'dsp', trackId: tr.id, slotIdx: st.selectedDeviceSlotIdx };
+      }
       store.emit('overlay', st.detailOverlay);
     } else if (action.type === 'B' && st.selectedDeviceSlotIdx > 0) {
       store.toggleDeviceBypass(tr.id, st.selectedDeviceSlotIdx);
