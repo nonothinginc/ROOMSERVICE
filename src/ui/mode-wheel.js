@@ -166,68 +166,73 @@ export function createModeWheel() {
     }
 
     const styles = getComputedStyle(document.documentElement);
-    const surface = styles.getPropertyValue('--surface').trim();
-    const borderStrong = styles.getPropertyValue('--border-strong').trim();
+    const bg = styles.getPropertyValue('--bg').trim();
+    const border = styles.getPropertyValue('--border').trim();
     const ink = styles.getPropertyValue('--ink').trim();
     const inkDim = styles.getPropertyValue('--ink-dim').trim();
     const accent = styles.getPropertyValue('--accent').trim();
+    const font = styles.getPropertyValue('--font').trim() || 'monospace';
 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, css, css);
+    ctx.globalAlpha = Math.min(1, alpha * 1.2);
 
     const cx = css * 0.5;
     const cy = css * 0.5;
-    const rad = css * 0.34 * (0.85 + 0.15 * alpha);
+    const rad = css * 0.36 * (0.94 + 0.06 * alpha);
+    const step = (Math.PI * 2) / ITEMS.length;
 
-    ctx.strokeStyle = borderStrong;
+    // Hairline ring + sector ticks
+    ctx.strokeStyle = border;
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+    ctx.arc(cx, cy, rad * 0.62, 0, Math.PI * 2);
     ctx.stroke();
-
-    ITEMS.forEach((item, i) => {
-      const sel = i === selectedIdx;
-      smoothScale[i] += ((sel ? 1 : 0) - smoothScale[i]) * 0.28;
-      const s = smoothScale[i];
-      const ang = -Math.PI / 2 + (i * Math.PI * 2) / ITEMS.length;
-      const ix = cx + Math.cos(ang) * rad;
-      const iy = cy + Math.sin(ang) * rad;
-      const nodeR = css * (0.088 + 0.018 * s);
-
-      ctx.fillStyle = sel ? accent : surface;
-      ctx.strokeStyle = sel ? accent : borderStrong;
-      ctx.lineWidth = 1.5;
+    for (let i = 0; i < ITEMS.length; i++) {
+      const a = -Math.PI / 2 + i * step + step / 2;
       ctx.beginPath();
-      ctx.arc(ix, iy, nodeR, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(cx + Math.cos(a) * rad * 0.62, cy + Math.sin(a) * rad * 0.62);
+      ctx.lineTo(cx + Math.cos(a) * rad * 0.68, cy + Math.sin(a) * rad * 0.68);
       ctx.stroke();
+    }
 
-      ctx.fillStyle = sel ? '#F2F0EC' : ink;
-      ctx.font = `700 ${Math.round(css * 0.032)}px "Geist Mono", monospace`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(item.label, ix, iy);
-    });
-
-    // Center crosshair + active stick indicator
-    ctx.fillStyle = surface;
-    ctx.strokeStyle = borderStrong;
+    // Selected-sector accent arc
+    const selA = -Math.PI / 2 + selectedIdx * step;
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, css * 0.09, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.arc(cx, cy, rad * 0.62, selA - step * 0.32, selA + step * 0.32);
     ctx.stroke();
 
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.arc(cx + stickX * (css * 0.065), cy + stickY * (css * 0.065), 5, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = inkDim;
-    ctx.font = `700 ${Math.round(css * 0.028)}px "Geist Mono", monospace`;
+    ctx.font = `500 ${Math.max(10, Math.round(css * 0.036))}px ${font}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(ITEMS[selectedIdx]?.id || '', cx, cy + css * 0.145);
+    ITEMS.forEach((item, i) => {
+      const sel = i === selectedIdx;
+      smoothScale[i] += ((sel ? 1 : 0) - smoothScale[i]) * 0.3;
+      const s = smoothScale[i];
+      const ang = -Math.PI / 2 + i * step;
+      const ix = cx + Math.cos(ang) * rad;
+      const iy = cy + Math.sin(ang) * rad;
+      if (s > 0.02) {
+        const r = css * 0.085 * (0.7 + 0.3 * s);
+        ctx.globalAlpha = Math.min(1, alpha * 1.2) * s;
+        ctx.fillStyle = ink;
+        ctx.beginPath();
+        ctx.arc(ix, iy, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = Math.min(1, alpha * 1.2);
+      }
+      ctx.fillStyle = sel ? bg : inkDim;
+      ctx.fillText(item.label, ix, iy + 0.5);
+    });
+
+    // Center stick puck
+    ctx.fillStyle = ink;
+    ctx.beginPath();
+    ctx.arc(cx + stickX * rad * 0.42, cy + stickY * rad * 0.42, 3.5, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }

@@ -1,40 +1,52 @@
-# ROOMSERVICE — Hardware Industrial Design System
+# ROOMSERVICE — Hardware Industrial Design System (Skin v2)
 
-Visual grammar blends **Dieter Rams / Braun** functional precision with **Nothing Phone 3** monochromatic hardware surfaces, soft `6px`–`8px` modular geometry, high-contrast tabular monospace (`Geist Mono`), and crisp `#D71921` Nothing Red active accents.
+Skin v2 (2026-11-26) replaced the outlined-chip look. The previous skin is preserved at git tag `skin-legacy-v1` / branch `legacy-skin` and live at `https://nonothinginc.github.io/ROOMSERVICE/legacy/`.
 
-## 1. Dual Hardware Finishes (`L2 + Select` or Right Rail Toggle)
+Grammar: Dieter Rams / Braun restraint + Teenage Engineering flatness + Nothing monochrome. **No outlined buttons anywhere.** Hairlines (`1px var(--border)`) only separate structural zones (rails, header, strips, card footers). Red (`--accent`) is reserved for: playhead, record/armed, clip, active-view tick, engaged-toggle LED, live hits.
 
-| Token | Nothing Black (Default) | Nothing White | Role |
+## 1. Tokens (`src/styles/main.css`)
+
+| Token | Nothing Black | Nothing White | Role |
 | :--- | :--- | :--- | :--- |
-| `--bg` | `#0D0D0F` | `#F4F4F2` | Primary canvas & recessed well |
-| `--surface` | `#141418` | `#EAEAE6` | Card, rail, header & modal surface |
-| `--surface-elev` | `#1C1C22` | `#FFFFFF` | Active clips & elevated pills |
-| `--surface-recessed` | `#09090B` | `#DFDFDA` | Segmented wells, meter troughs, pads |
-| `--border` | `rgba(255,255,255,0.09)` | `rgba(0,0,0,0.09)` | Structural `1px` hairlines |
-| `--ink` | `#F2F0EC` | `#111113` | High-contrast labels, values & active fills |
-| `--accent` | `#D71921` | `#D71921` | Playhead, record arm, peak meter segments |
+| `--bg` | `#0D0D0F` | `#F4F4F2` | Chassis, rails, header, stage |
+| `--surface` | `#121215` | `#EDEDEA` | Cards, selected strip, wells |
+| `--fill` / `--fill-strong` | `ink 5.5% / 11%` | `ink 4.5% / 9%` | Soft-key rest / pressed or engaged |
+| `--border` | `rgba(255,255,255,0.10)` | `rgba(0,0,0,0.12)` | Structural hairlines only |
+| `--ink` / `--ink-dim` / `--ink-faint` | `#F2F0EC` / 50% / 22% | `#111113` / 52% / 20% | Values / labels / ticks |
+| `--accent` | `#D71921` | `#D71921` | See red rule above |
+| `--key-black` | `#08080A` | `#CFCFCA` | Piano-roll black keys |
+| Type scale | `--t-micro 9` · `--t-label 10` · `--t-body 11` · `--t-value 13` px, weight 400/500 only | | |
+| Radii | `3 / 4 / 6px` | | |
 
-## 2. 3-Zone Hardware Frame
+## 2. Controls
 
-- **Left Navigation Rail (`46px` wide, `38px` under `560px`):** `1.5px` geometric SVG icon buttons for `ROLL`, `ARR`, `MIX`, `DSP`, `LAB` (with Nothing Red dot badge when items exist), and bottom `PROJECT`/Settings gear. Active state fills a soft rounded square (`var(--ink)` background / `var(--bg)` icon).
-- **Slim Top Header (`44px` tall):**
-  - Left: `ROOMSERVICE` wordmark (opens Project modal), pattern badge (`P01`), `PAT` / `SONG` mode toggle.
-  - Center: `■` Stop, `▶`/`❚❚` Play/Pause, `●` Record arm, vertical-drag `BPM` readout.
-  - Right: `↶` Undo (hold 450ms for History/Sessions drawer), `↷` Redo, and responsive mobile Dot-Matrix mount slot.
-- **Right Telemetry Rail (`46px` wide, collapses `< 560px`):** Top circular [dot-matrix.js](../src/ui/dot-matrix.js) canvas cutout (tap cycles Wave/Grain/Ring; long-press opens full-screen telemetry), middle twin vertical Master L/R bar meters, bottom hardware theme dot.
+- **Ghost** (`.hdr-btn`, `.rail-btn`, `.icon-only`): no fill, no border; `--fill` on press. Icons are 16–18px SVG, `1.5` stroke, round caps (`.ico`). Never use unicode glyphs (`↶ ▶ ■ ✕`) for controls.
+- **Soft key** (`.ctx-chip`): `--fill`, dim ink. **Engaged** (`.active`): ink text + `4px` red LED dot. State lives in the LED — never write `ON/OFF` in labels.
+- **Primary** (`.ctx-chip.solid`): inverted ink block, one per surface max (SAVE, GENERATE, + FX).
+- **Selector** (`.ctx-chip.track`): bare label + faint `▼`.
+- **Segmented** (`.dsp-seg-bar`, `.mpc-seg-bar`, `.bc-seg-bar`): recessed well, inverted active segment.
+- **Rotary** (`rotary.js`): 1px track, 2px **ink** value arc (bipolar params sweep from 12 o'clock), ink pointer. Compact knobs: `.rotary-unit.compact` (46px; 32px inside mixer strips).
+- **Gamepad hints**: dim trailing `.pill-hint` (`FLIP  Y`), full binding in `title`.
+- **Overlay titles**: `SECTION <i class="oh-sub">detail</i>` — no `//` separators, close is a single ✕ icon (`Close [B]` in title).
+- **Native inputs**: range = 1px hairline + 12px ink thumb (red while dragging); selects = flat well + drawn chevron.
 
-## 3. Custom Module Visualizers & Controls
+## 3. Frame & Views
 
-- **Rams Rotary Encoders (`rotary.js`):** Thin `1.25px` open-circle track, `1.5px` Nothing Red value arc, crisp radial tick indicator, `L2`/Shift `0.25x` fine control, double-tap default reset.
-- **Segmented Discrete Selectors (`dsp.js`):** Params with `control: 'segmented'` render inside recessed pill tracks (`--surface-recessed`) with solid inverted active buttons (e.g., `DRUM-8` `SYNTH | RACK`, `909 | 808 | RAND | COMBO`; `MONO-303` `SAW | SQR`).
-- **Bespoke DSP Cards:**
-  - `EQ-3`: Smooth logarithmic curve (`20`–`10k`) with live low/mid/high control dots.
-  - `COMP`: Gain reduction transfer curve (`-36..0 dB`) + knee dot alongside stacked `THRESH / RATIO / ATTACK / RELEASE` numbers.
-  - `VERB`: Concentric tonal room depth contours + live edge pulse alongside `SIZE / DECAY / MIX`.
-  - `DELAY`: Dotted `8×6` tap matrix with stereo ping-pong tap stems alongside `TIME / FEEDBACK / MIX`.
-- **Mixer (`mix.js`):** Scrollable 8-channel + `SND A` / `SND B` bay beside a **pinned right-side `MASTER` dock** with calibrated `+6 / 0 / -6 / -12 / -24 / -∞` dB scales, unity tick, upright **18-segment peak-hold bar meters** (twin L/R on Master), and tappable/swipeable bottom channel labels.
+- **Left rail (48px):** ghost icons in `--ink-dim`; active view = ink icon + 2px red tick on the rail edge. Bottom: mode-wheel ring (opens the L3 wheel directly via `input.emitWheel`), project gear.
+- **Header (44px):** `P01` `PAT` · stop / play(pause) / rec glyph icons · hairline · BPM value (vertical drag) · metronome icon with state pip (none = off, red = rec-only, ink = always; count-in shows `1B` / live beat) · undo / redo SVG arrows (hold undo for history).
+- **Right rail (48px):** dot-matrix cutout, twin master bars, half-moon finish toggle.
+- **Mixer:** strips are flat; selected strip gets `--surface`. A / B / P compact knobs fit 106px strips; IEC meters unchanged.
+- **DSP cards:** borderless `--surface` cards; focus shown by the red title dot; footer separated by a hairline.
+- **Piano roll:** flat key column, black keys as short recessed bars, firmer hairline at each octave, scale root marked with a faint tick and label.
 
-## 4. Physical RG477V Gamepad Bindings (`src/input/gamepad.js`)
+## 4. Breakpoints
+
+- `<= 960px` wide or `<= 720px` tall: chassis is full-bleed (no 4:3 pillarbox).
+- `561–960px` (RG477V 640×480 / 640×424, 853×640): keep MPC, Brickchord, Lead, Dot-matrix side-by-side.
+- `<= 560px` (portrait phones): right rail collapses into the header dot slot; overlays stack.
+- Verified with `tools/ui-audit.mjs` geometry sweep (0 overlaps / clips / sub-22px targets) at 640×480@2, 640×424@2, 853×640@1.5, 1280×960@1, 412×915@2.6.
+
+## 5. Physical RG477V Gamepad Bindings (`src/input/gamepad.js`)
 
 - `L1 / R1`: Cycle primary views (`ROLL` <-> `ARR` <-> `MIX` <-> `DSP`).
 - `L2 + Select`: Toggle Nothing Black / Nothing White theme.

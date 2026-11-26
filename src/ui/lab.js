@@ -70,7 +70,7 @@ export function renderLabOverlay(panelEl) {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>LAB // ${st.lab.length} ARCHIVED</span>`;
+    hdr.innerHTML = `<span>LAB <i class="oh-sub">${st.lab.length} ARCHIVED</i></span>`;
 
     const hdrRight = document.createElement('div');
     hdrRight.style.display = 'flex';
@@ -86,7 +86,9 @@ export function renderLabOverlay(panelEl) {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
 
     hdrRight.append(stashBtn, closeBtn);
@@ -116,7 +118,7 @@ export function renderLabOverlay(panelEl) {
       const top = document.createElement('div');
       top.className = 'lab-card-top';
       top.innerHTML = `
-        <span>${item.id} // ${item.refId}</span>
+        <span>${item.id} · ${item.refId}</span>
         <span class="ctx-chip">${item.instrumentName || item.kind.toUpperCase()}</span>
       `;
 

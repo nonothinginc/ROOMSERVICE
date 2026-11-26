@@ -807,10 +807,12 @@ export function createMixView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>CH ${tr.code} // TRACK LABEL</span>`;
+    hdr.innerHTML = `<span>CH ${tr.code} <i class="oh-sub">TRACK LABEL</i></span>`;
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdr.appendChild(closeBtn);
 
@@ -888,7 +890,7 @@ export function createMixView() {
       modalEl.innerHTML = '';
       const hdr = document.createElement('div');
       hdr.className = 'overlay-hdr';
-      hdr.innerHTML = `<span>${tr.code} ${tr.name} // FX RACK</span>`;
+      hdr.innerHTML = `<span>${tr.code} ${tr.name} <i class="oh-sub">FX RACK</i></span>`;
 
       const hdrRight = document.createElement('div');
       hdrRight.style.display = 'flex';
@@ -905,7 +907,9 @@ export function createMixView() {
 
       const closeBtn = document.createElement('button');
       closeBtn.className = 'ctx-chip';
-      closeBtn.textContent = 'CLOSE [B]';
+      closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+      closeBtn.title = 'Close [B]';
+      closeBtn.classList.add('icon-only');
       closeBtn.onclick = close;
 
       hdrRight.append(openDspBtn, closeBtn);
@@ -1072,10 +1076,12 @@ export function createMixView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>${key === 'sendA' ? 'SND A' : 'SND B'} // ${def.meta.name}</span>`;
+    hdr.innerHTML = `<span>${key === 'sendA' ? 'SND A' : 'SND B'} <i class="oh-sub">${def.meta.name}</i></span>`;
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdr.appendChild(closeBtn);
 
@@ -1196,7 +1202,7 @@ export function createMixView() {
     const st = store.getState();
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>MASTER // PUNCH-IN FX [R2+R-STICK]</span>`;
+    hdr.innerHTML = `<span>MASTER <i class="oh-sub">PUNCH-IN FX [R2+R-STICK]</i></span>`;
 
     const actions = document.createElement('div');
     actions.style.display = 'flex';
@@ -1220,7 +1226,9 @@ export function createMixView() {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = () => {
       if (!engine.getPunchState().hold) engine.setPunchFx(0, 0);
       st.detailOverlay = null;
@@ -1268,10 +1276,12 @@ export function createMixView() {
     const st = store.getState();
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>MASTER & CHANNEL METER // BRICKWALL LIMITER</span>`;
+    hdr.innerHTML = `<span>MASTER & CHANNEL METER <i class="oh-sub">BRICKWALL LIMITER</i></span>`;
     const close = document.createElement('button');
     close.className = 'ctx-chip';
-    close.textContent = 'CLOSE [B]';
+    close.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    close.title = 'Close [B]';
+    close.classList.add('icon-only');
     close.onclick = () => {
       st.detailOverlay = null;
       store.emit('overlay', null);

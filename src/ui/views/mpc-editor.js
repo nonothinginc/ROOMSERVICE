@@ -183,13 +183,10 @@ export function renderMpcEditor(panelEl, trackId) {
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
     const title = document.createElement('span');
-    title.textContent = `${tr.code} ${tr.name} // MPC`;
+    title.textContent = `${tr.code} ${tr.name} MPC`;
 
     const hdrRight = document.createElement('div');
-    hdrRight.style.display = 'flex';
-    hdrRight.style.gap = '6px';
-    hdrRight.style.alignItems = 'center';
-    hdrRight.style.flexWrap = 'wrap';
+    hdrRight.className = 'oh-actions';
 
     const synthBtn = document.createElement('button');
     synthBtn.className = `ctx-chip ${!isRack ? 'active' : ''}`;
@@ -251,7 +248,9 @@ export function renderMpcEditor(panelEl, trackId) {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdrRight.appendChild(closeBtn);
 
@@ -281,8 +280,8 @@ export function renderMpcEditor(panelEl, trackId) {
 
       const numStr = String(idx + 1).padStart(2, '0');
       const synCircuit = info.synthVoiceCircuit?.[idx] === 1 ? 'VA808' : 'VA909';
-      const bankTag = !isRack ? (idx < 8 ? synCircuit : '--') : pad.active ? pad.bank : '--';
-      const label = !isRack ? (idx < 8 ? pad.name.replace(/^(909|808)\s+/, '') : '--') : pad.active ? pad.name : 'EMPTY';
+      const bankTag = !isRack ? (idx < 8 ? synCircuit : '') : pad.active ? pad.bank : '';
+      const label = isActive ? String(pad.name || '').replace(/^(909|808)\s+/, '') : '';
 
       padBtn.innerHTML = `
         <div class="mpc-pad-top"><span>${numStr}</span><span>${bankTag}</span></div>

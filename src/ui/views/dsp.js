@@ -585,7 +585,7 @@ function drawTapeLcd(ctx, w, h, vizData, accent, ink, inkDim, bg, border, isExpa
   ctx.fillStyle = ink;
   ctx.font = `700 ${compactHud ? 10 : 12}px "Geist Mono", monospace`;
   ctx.textBaseline = 'top';
-  ctx.fillText(`${vizData.ips} IPS // ${formula}`, 12, 10);
+  ctx.fillText(`${vizData.ips} IPS  ${formula}`, 12, 10);
   if (isDrop) {
     ctx.fillStyle = accent;
     ctx.fillText('DROP', p1End - 40, 10);
@@ -700,7 +700,7 @@ function drawBrickchordViz(ctx, w, h, vizData, accent, ink, inkDim, bg, border) 
   ctx.font = '700 11px "Geist Mono", monospace';
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
-  ctx.fillText(`${patches[vizData.patchIdx] || 'JUNO'} // ${styles[vizData.styleIdx] || 'CHORD'}`, 14, 12);
+  ctx.fillText(`${patches[vizData.patchIdx] || 'JUNO'}  ${styles[vizData.styleIdx] || 'CHORD'}`, 14, 12);
 
   if (roman) {
     ctx.fillStyle = vizData.active ? accent : inkDim;
@@ -851,8 +851,9 @@ export function createDspView() {
     // Context strip (unified track/instrument menu)
     strip.innerHTML = '';
     const trkBtn = document.createElement('button');
-    trkBtn.className = 'ctx-chip solid';
-    trkBtn.textContent = `${tr.code} ${tr.name} ▾`;
+    trkBtn.className = 'ctx-chip track';
+    trkBtn.textContent = `${tr.code} ${tr.name}`;
+    trkBtn.insertAdjacentHTML('beforeend', '<span class="chev">▼</span>');
     const openInst = () => {
       st.detailOverlay = { type: 'inst-menu' };
       store.emit('overlay', st.detailOverlay);
@@ -1278,10 +1279,12 @@ export function createDspView() {
     const st = store.getState();
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>DSP MODULE BROWSER // AUTO-DISCOVERED</span>`;
+    hdr.innerHTML = `<span>MODULES</span>`;
     const close = document.createElement('button');
     close.className = 'ctx-chip';
-    close.textContent = 'CLOSE [B]';
+    close.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    close.title = 'Close [B]';
+    close.classList.add('icon-only');
     close.onclick = () => {
       st.devicePickerOpen = false;
       store.emit('device-picker', false);
@@ -1337,10 +1340,12 @@ export function createDspView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>${tr.code} ${tr.name} // ${def.meta.name}</span>`;
+    hdr.innerHTML = `<span>${tr.code} ${tr.name} <i class="oh-sub">${def.meta.name}</i></span>`;
     const close = document.createElement('button');
     close.className = 'ctx-chip';
-    close.textContent = 'CLOSE [B]';
+    close.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    close.title = 'Close [B]';
+    close.classList.add('icon-only');
     close.onclick = () => {
       st.detailOverlay = null;
       store.emit('overlay', null);

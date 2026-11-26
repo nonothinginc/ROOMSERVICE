@@ -43,7 +43,7 @@ export function createRollView() {
   strip.className = 'ctx-strip';
 
   const trackChip = document.createElement('button');
-  trackChip.className = 'ctx-chip solid';
+  trackChip.className = 'ctx-chip track';
   const openInstMenu = () => {
     const st = store.getState();
     st.detailOverlay = { type: 'inst-menu' };
@@ -884,7 +884,8 @@ export function createRollView() {
     const drumMode = isDrumTrack();
     const brickMode = isBrickchordTrack();
     const leadMode = isLeadSynthTrack();
-    trackChip.textContent = `${tr.code} ${tr.name} ▾`;
+    trackChip.textContent = `${tr.code} ${tr.name}`;
+    trackChip.insertAdjacentHTML('beforeend', '<span class="chev">▼</span>');
 
     mpcChip.style.display = drumMode ? 'inline-flex' : 'none';
     brickChip.style.display = brickMode ? 'inline-flex' : 'none';
@@ -1026,6 +1027,7 @@ export function createRollView() {
     const inkDim = styles.getPropertyValue('--ink-dim').trim();
     const inkFaint = styles.getPropertyValue('--ink-faint').trim();
     const accent = styles.getPropertyValue('--accent').trim();
+    const keyBlack = styles.getPropertyValue('--key-black').trim() || bg;
     const gridSub = styles.getPropertyValue('--grid-sub').trim();
     const gridBeat = styles.getPropertyValue('--grid-beat').trim();
 
@@ -1061,7 +1063,7 @@ export function createRollView() {
     gridCtx.stroke();
 
     gridCtx.fillStyle = inkDim;
-    gridCtx.font = '700 8.5px Geist Mono, monospace';
+    gridCtx.font = '500 9px Geist Mono, monospace';
     gridCtx.fillText(`${pat?.length || 16}S`, 6, 12.5);
 
     gridCtx.save();
@@ -1143,17 +1145,17 @@ export function createRollView() {
 
         const hitFlash = flashMap && now - (flashMap[src.index] || 0) < 120;
         gridCtx.fillStyle = surface;
-        gridCtx.fillRect(0, y, kw - 1, dRowH - 1);
-        gridCtx.strokeStyle = hitFlash ? accent : border;
-        gridCtx.strokeRect(0.5, y + 0.5, kw - 1, dRowH - 1);
+        gridCtx.fillRect(0, y, kw - 1, dRowH);
+        gridCtx.fillStyle = hitFlash ? accent : 'transparent';
+        if (hitFlash) gridCtx.fillRect(0, y + 2, 2, dRowH - 4);
 
         gridCtx.save();
         gridCtx.beginPath();
         gridCtx.rect(2, y, kw - 6, dRowH);
         gridCtx.clip();
         gridCtx.fillStyle = hitFlash ? accent : ink;
-        gridCtx.font = '700 9px Geist Mono, monospace';
-        gridCtx.fillText(src.label, 6, y + dRowH / 2 + 3);
+        gridCtx.font = '500 9px Geist Mono, monospace';
+        gridCtx.fillText(src.label, 8, y + dRowH / 2 + 3);
         gridCtx.restore();
       });
 
@@ -1177,28 +1179,51 @@ export function createRollView() {
         const inScale = isMidiInScale(midi, st.scaleRoot, st.scaleId);
         const isActiveRow = draggedMidi === midi;
 
+        const isRoot = ((midi - st.scaleRoot) % 12 + 12) % 12 === 0;
         if (inScale) {
           gridCtx.fillStyle = gridSub;
           gridCtx.fillRect(kw, y, w - kw, rowH);
         }
-        gridCtx.strokeStyle = border;
+        // Row hairlines: faint per semitone, firmer on each C octave boundary
+        gridCtx.strokeStyle = pc === 11 ? border : gridSub;
         gridCtx.lineWidth = 1;
         gridCtx.beginPath();
-        gridCtx.moveTo(kw, y + 0.5);
-        gridCtx.lineTo(w, y + 0.5);
+        gridCtx.moveTo(kw, y + rowH - 0.5);
+        gridCtx.lineTo(w, y + rowH - 0.5);
         gridCtx.stroke();
 
-        gridCtx.fillStyle = isActiveRow ? accent : isBlackKey ? bg : surface;
-        gridCtx.fillRect(0, y, kw - 1, rowH - 1);
-        gridCtx.strokeStyle = isActiveRow ? accent : border;
-        gridCtx.strokeRect(0.5, y + 0.5, kw - 1, rowH - 1);
+        // Key column: flat surface, black keys as recessed short bars, no per-key boxes
+        gridCtx.fillStyle = isActiveRow ? accent : surface;
+        gridCtx.fillRect(0, y, kw - 1, rowH);
+        if (isBlackKey && !isActiveRow) {
+          gridCtx.fillStyle = keyBlack;
+          gridCtx.fillRect(0, y + 1, Math.round(kw * 0.58), rowH - 2);
+        }
+        if (!isBlackKey && (pc === 11 || pc === 4)) {
+          gridCtx.strokeStyle = pc === 11 ? border : gridSub;
+          gridCtx.beginPath();
+          gridCtx.moveTo(0, y + 0.5);
+          gridCtx.lineTo(kw - 1, y + 0.5);
+          gridCtx.stroke();
+        }
+        if (isRoot && !isActiveRow) {
+          gridCtx.fillStyle = inkFaint;
+          gridCtx.fillRect(kw - 3, y + 2, 2, rowH - 4);
+        }
 
-        if (isActiveRow || pc === 0 || midi === Math.round(cursorMidi)) {
-          gridCtx.fillStyle = isActiveRow ? '#F2F0EC' : pc === 0 ? ink : inkDim;
-          gridCtx.font = '600 10px Geist Mono, monospace';
-          gridCtx.fillText(midiToName(midi), 6, y + rowH / 2 + 3);
+        if (isActiveRow || pc === 0 || isRoot || midi === Math.round(cursorMidi)) {
+          gridCtx.fillStyle = isActiveRow ? '#F2F0EC' : pc === 0 || isRoot ? ink : inkDim;
+          gridCtx.font = '500 10px Geist Mono, monospace';
+          gridCtx.fillText(midiToName(midi), 6, y + rowH / 2 + 3.5);
         }
       }
+
+      // Key column edge
+      gridCtx.strokeStyle = border;
+      gridCtx.beginPath();
+      gridCtx.moveTo(kw - 0.5, RULER_H);
+      gridCtx.lineTo(kw - 0.5, h);
+      gridCtx.stroke();
 
       drawVerticalGridLines(RULER_H, h);
     }
@@ -1354,10 +1379,12 @@ export function createRollView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>RIFF MACHINE // EUCLIDEAN + SCALE</span>`;
+    hdr.innerHTML = `<span>RIFF</span>`;
     const close = document.createElement('button');
     close.className = 'ctx-chip';
-    close.textContent = 'CLOSE [B]';
+    close.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    close.title = 'Close [B]';
+    close.classList.add('icon-only');
     close.onclick = () => {
       st.randomizerOpen = false;
       store.emit('randomizer', false);
@@ -1534,10 +1561,12 @@ export function createRollView() {
     const pat = st.patterns[st.activePatternId];
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>ROLL // GRID, LENGTH & SCALE</span>`;
+    hdr.innerHTML = `<span>ROLL <i class="oh-sub">SETTINGS</i></span>`;
     const close = document.createElement('button');
     close.className = 'ctx-chip';
-    close.textContent = 'CLOSE [B]';
+    close.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    close.title = 'Close [B]';
+    close.classList.add('icon-only');
     close.onclick = () => {
       st.detailOverlay = null;
       store.emit('overlay', null);
@@ -1630,20 +1659,20 @@ export function createRollView() {
 
     const slideBtn = document.createElement('button');
     slideBtn.className = `ctx-chip ${st.slideMode ? 'active' : ''}`;
-    slideBtn.textContent = `SLIDE: ${st.slideMode ? 'ON' : 'OFF'}`;
+    slideBtn.textContent = 'SLIDE';
     slideBtn.onclick = () => {
       st.slideMode = !st.slideMode;
-      slideBtn.textContent = `SLIDE: ${st.slideMode ? 'ON' : 'OFF'}`;
+      slideBtn.textContent = 'SLIDE';
       slideBtn.classList.toggle('active', st.slideMode);
       store.emit('roll-ctx');
     };
 
     const lockBtn = document.createElement('button');
     lockBtn.className = `ctx-chip ${st.scaleLock ? 'active' : ''}`;
-    lockBtn.textContent = `SCALE LOCK: ${st.scaleLock ? 'ON' : 'OFF'}`;
+    lockBtn.textContent = 'SCALE LOCK';
     lockBtn.onclick = () => {
       st.scaleLock = !st.scaleLock;
-      lockBtn.textContent = `SCALE LOCK: ${st.scaleLock ? 'ON' : 'OFF'}`;
+      lockBtn.textContent = 'SCALE LOCK';
       lockBtn.classList.toggle('active', st.scaleLock);
       store.emit('roll-ctx');
     };

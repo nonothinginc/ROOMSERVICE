@@ -863,7 +863,9 @@ export function createArrView() {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = () => {
       st.detailOverlay = null;
       store.emit('overlay', null);
@@ -871,7 +873,7 @@ export function createArrView() {
 
     if (ov.type === 'auto') {
       const ac = st.autoClips[ov.autoId];
-      hdr.innerHTML = `<span>AUTOMATION // ${ac.id}</span>`;
+      hdr.innerHTML = `<span>AUTOMATION <i class="oh-sub">${ac.id}</i></span>`;
       hdr.appendChild(closeBtn);
 
       const body = document.createElement('div');
@@ -899,14 +901,14 @@ export function createArrView() {
         const tr = st.tracks[ac.targetTrackId];
         const volOpt = document.createElement('option');
         volOpt.value = '0:vol';
-        volOpt.textContent = 'MIX // VOLUME';
+        volOpt.textContent = 'MIX · VOLUME';
         paramSel.appendChild(volOpt);
         tr.inserts.forEach((slot, sIdx) => {
           const def = getDevice(slot.deviceId);
           def?.meta.params.forEach((p) => {
             const o = document.createElement('option');
             o.value = `${sIdx}:${p.id}`;
-            o.textContent = `${def.meta.name} // ${p.label}`;
+            o.textContent = `${def.meta.name} · ${p.label}`;
             if (ac.targetSlotIdx === sIdx && ac.targetParamId === p.id) o.selected = true;
             paramSel.appendChild(o);
           });
@@ -999,7 +1001,7 @@ export function createArrView() {
 
     if (ov.type === 'audio') {
       const ac = st.audioClips[ov.audioId];
-      hdr.innerHTML = `<span>WARP INSPECTOR // ${ac.id} (${ac.name})</span>`;
+      hdr.innerHTML = `<span>WARP INSPECTOR <i class="oh-sub">${ac.id} (${ac.name})</i></span>`;
       hdr.appendChild(closeBtn);
       const body = document.createElement('div');
       body.className = 'overlay-body';
@@ -1057,7 +1059,7 @@ export function createArrView() {
       return;
     }
 
-    hdr.innerHTML = `<span>PLAYLIST // SONG OVERVIEW</span>`;
+    hdr.innerHTML = `<span>SONG</span>`;
     hdr.appendChild(closeBtn);
     const body = document.createElement('div');
     body.className = 'overlay-body';
@@ -1079,11 +1081,13 @@ export function createArrView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>TRACK ${String(lane + 1).padStart(2, '0')} // LABEL</span>`;
+    hdr.innerHTML = `<span>TRACK ${String(lane + 1).padStart(2, '0')} <i class="oh-sub">LABEL</i></span>`;
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = () => {
       st.detailOverlay = null;
       store.emit('overlay', null);
@@ -1171,7 +1175,9 @@ export function createArrView() {
     hdr.innerHTML = `<span>${clip.refId} @ ${laneLabel}</span>`;
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdr.appendChild(closeBtn);
 
@@ -1313,10 +1319,12 @@ export function createArrView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>PLAYLIST // ADD</span>`;
+    hdr.innerHTML = `<span>ADD CLIP</span>`;
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdr.appendChild(closeBtn);
 
@@ -1384,10 +1392,12 @@ export function createArrView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>${clip.refId} // RENAME</span>`;
+    hdr.innerHTML = `<span>${clip.refId} <i class="oh-sub">RENAME</i></span>`;
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdr.appendChild(closeBtn);
 
@@ -1463,10 +1473,12 @@ export function createArrView() {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>${patId} // PATTERN NAME</span>`;
+    hdr.innerHTML = `<span>${patId} <i class="oh-sub">PATTERN NAME</i></span>`;
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = close;
     hdr.appendChild(closeBtn);
 

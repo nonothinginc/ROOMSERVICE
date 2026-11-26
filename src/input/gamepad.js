@@ -164,6 +164,11 @@ class InputController {
   init() {
     window.addEventListener('keydown', (e) => this.handleKeyDown(e));
     window.addEventListener('keyup', (e) => this.handleKeyUp(e));
+    // A key released while the page is hidden/unfocused never fires keyup; drop stale holds
+    window.addEventListener('blur', () => this.keysDown.clear());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.keysDown.clear();
+    });
   }
 
   handleKeyDown(e) {

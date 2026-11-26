@@ -122,7 +122,7 @@ export function createDotMatrixDisplay() {
   function renderOverlayContent(containerEl) {
     const header = document.createElement('div');
     header.className = 'overlay-hdr';
-    header.innerHTML = `<span>HARDWARE TELEMETRY // DOT-MATRIX</span>`;
+    header.innerHTML = `<span>TELEMETRY</span>`;
 
     const modeBar = document.createElement('div');
     modeBar.style.display = 'flex';
@@ -140,7 +140,9 @@ export function createDotMatrixDisplay() {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = () => {
       store.getState().detailOverlay = null;
       store.emit('overlay', null);

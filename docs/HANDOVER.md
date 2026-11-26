@@ -1,9 +1,9 @@
 # ROOMSERVICE — Session Handover Hub
 
 **Last Updated:** 2026-11-26  
-**Latest Source Commit (`main`):** pending commit (`Brickchord cross-component upgrades & final responsive dimensions/cleanup pass`)  
-**Latest Live Deploy (`gh-pages`):** deploying (`https://nonothinginc.github.io/ROOMSERVICE/`)  
-**Service Worker Cache:** `roomservice-v9` ([public/sw.js](../public/sw.js))  
+**Latest Source Commit (`main`):** see `git log` (Skin v2 reskin, session 03)  
+**Latest Live Deploy (`gh-pages`):** Skin v2 at `https://nonothinginc.github.io/ROOMSERVICE/`, pre-reskin look at `/ROOMSERVICE/legacy/` (tag `skin-legacy-v1`)  
+**Service Worker Cache:** `roomservice-v10` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -51,6 +51,12 @@ Every decision below came directly from user feedback and **must not be regresse
    - Inspired by `michaeltietjen/brickchord` (MIT): auto-discovered DSP instrument with 6 polyphonic engines (`JUNO | BRASS | PWM | PLUCK | FM | ORGAN`), 6 performance styles (`CHORD | FOLK | POP | HARP | ARP | REP`), resonant LP + wet ping-pong delay/reverb bus, and dedicated dry punchy synth bass follower.
    - Dedicated RG477V Performance Overlay (`PAD` / `CHORD` chip across `ROLL`, `DSP`, `MIX`, `inst-menu`, `triage`) switches `src/input/gamepad.js` into **raw 120Hz performance passthrough mode**: D-Pad (`I..IV`), `X/A/B` (`V..vii°`), held modifiers (`Y=FLIP`, `L1=7TH`, `R1=SUS4`, `L1+R1=9TH`), Left Hall Stick (8-way chord bends), Right Hall Stick (Cutoff X / Wet & Res Y + `R3` Hold), `L2` Latch, `L3` Style cycle, `R2` chord step-stamp to Pattern (`engine.recordChordToPattern`), `SELECT + D-Pad/Y` Key/Oct/Scale, and `SELECT + B` exit. Full multi-touch mirror on phones.
 
+9. **Skin v2 Visual Grammar ([docs/DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)):**
+   - No outlined buttons; ghost / soft-key / primary / selector variants only. Engaged = red LED dot, never `ON/OFF` text. SVG icons only (no unicode control glyphs). Overlay titles `SECTION` + dim subtitle, no `//`. Close = single ✕ icon.
+   - Red reserved for playhead, record, clip, active-view tick, LED, live hits. Rotary arcs are ink.
+   - Mixer meters are user-approved: do not restyle them.
+   - Run `node tools/ui-audit.mjs <url> <out> 640x480@2 640x424@2 853x640@1.5 1280x960@1 412x915@2.6` before deploying UI changes; it must report 0 issues.
+
 ---
 
 ## 2. Session Handover Protocol
@@ -69,7 +75,7 @@ Every decision below came directly from user feedback and **must not be regresse
 
 ## 3. Open Items & Immediate Next Priorities
 
-- **Pending User Review:** User is testing commit `06b22b6` (`main: 876d687`) on Anbernic RG477V / mobile via https://nonothinginc.github.io/ROOMSERVICE/.
+- **Pending User Review:** Skin v2 reskin + ring-button fix (session 03). Compare against `/ROOMSERVICE/legacy/`.
 - **Likely Next Follow-Ups:**
   1. Polish any mobile touch ergonomics / spacing quirks surfaced during phone testing (e.g., `MIX` pinned master width on sub-390px screens, `ARR` touch feel, or `MPC` pad editing on portrait phones).
   2. Code-split Tone.js / optional manual chunks in Vite if initial mobile load size (`564 kB` JS / `146 kB` gzip) needs trimming.

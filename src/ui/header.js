@@ -1,5 +1,6 @@
 import { dbToMeterNorm, engine } from '../audio/engine.js';
 import { store } from '../state/store.js';
+import { input } from '../input/gamepad.js';
 import { downloadProjectArchive, importProjectArchive, saveAutosave } from '../storage/project-archive.js';
 import { attachLongPress } from './components/longpress.js';
 
@@ -68,7 +69,7 @@ export function renderHistoryOverlay(panelEl) {
 
     const hdr = document.createElement('div');
     hdr.className = 'overlay-hdr';
-    hdr.innerHTML = `<span>MEMORY // ${tab === 'UNDO' ? `${info.undoCount} STEPS` : `${st.sessionHistory.length} SESSIONS`}</span>`;
+    hdr.innerHTML = `<span>MEMORY <i class="oh-sub">${tab === 'UNDO' ? `${info.undoCount} STEPS` : `${st.sessionHistory.length} SESSIONS`}</i></span>`;
 
     const actions = document.createElement('div');
     actions.style.display = 'flex';
@@ -92,7 +93,9 @@ export function renderHistoryOverlay(panelEl) {
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
-    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+    closeBtn.title = 'Close [B]';
+    closeBtn.classList.add('icon-only');
     closeBtn.onclick = () => {
       st.detailOverlay = null;
       store.emit('overlay', null);
@@ -208,7 +211,7 @@ export function renderHistoryOverlay(panelEl) {
           const row = document.createElement('button');
           row.className = 'history-item';
           const dt = new Date(ses.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          row.innerHTML = `<span>${ses.label} // ${ses.bpm} BPM</span><span>${dt} · LAB ${ses.labCount || 0}</span>`;
+          row.innerHTML = `<span>${ses.label} <i class="oh-sub">${ses.bpm} BPM</span><span>${dt} · LAB ${ses.labCount || 0}</i></span>`;
           row.onclick = () => {
             store.restoreSessionCheckpoint(ses.id);
             rebuild();
@@ -234,10 +237,12 @@ export function renderProjectModal(modalEl) {
 
   const hdr = document.createElement('div');
   hdr.className = 'overlay-hdr';
-  hdr.innerHTML = `<span>PROJECT // ${st.projectName || 'UNTITLED'}</span>`;
+  hdr.innerHTML = `<span>PROJECT <i class="oh-sub">${st.projectName || 'UNTITLED'}</i></span>`;
   const closeBtn = document.createElement('button');
   closeBtn.className = 'ctx-chip';
-  closeBtn.textContent = 'CLOSE [B]';
+  closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+  closeBtn.title = 'Close [B]';
+  closeBtn.classList.add('icon-only');
   closeBtn.onclick = close;
   hdr.appendChild(closeBtn);
 
@@ -304,6 +309,16 @@ export function renderProjectModal(modalEl) {
   modalEl.append(hdr, body);
 }
 
+const ICO = {
+  stop: `<svg class="ico" viewBox="0 0 16 16"><rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" stroke="none"/></svg>`,
+  play: `<svg class="ico" viewBox="0 0 16 16"><path d="M5 3.2v9.6c0 .4.4.6.7.4l7.2-4.8a.5.5 0 0 0 0-.8L5.7 2.8c-.3-.2-.7 0-.7.4z" fill="currentColor" stroke="none"/></svg>`,
+  pause: `<svg class="ico" viewBox="0 0 16 16"><rect x="4" y="3.5" width="2.6" height="9" rx=".6" fill="currentColor" stroke="none"/><rect x="9.4" y="3.5" width="2.6" height="9" rx=".6" fill="currentColor" stroke="none"/></svg>`,
+  rec: `<svg class="ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.25" fill="currentColor" stroke="none"/></svg>`,
+  undo: `<svg class="ico" viewBox="0 0 16 16"><path d="M5.5 3.5 2.5 6.5l3 3"/><path d="M2.5 6.5h7a3.5 3.5 0 0 1 0 7H7"/></svg>`,
+  redo: `<svg class="ico" viewBox="0 0 16 16"><path d="m10.5 3.5 3 3-3 3"/><path d="M13.5 6.5h-7a3.5 3.5 0 0 0 0 7H9"/></svg>`,
+  metro: `<svg class="ico" viewBox="0 0 16 16"><path d="M4 13.5h8L9.6 2.5H6.4z"/><path d="M8 10 10.6 5.5"/></svg>`
+};
+
 const RAIL_ICONS = {
   ROLL: `<svg viewBox="0 0 20 20"><circle cx="5" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="10" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="5" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="10" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="5" cy="15" r="1.2" fill="currentColor" stroke="none"/><circle cx="10" cy="15" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1.2" fill="currentColor" stroke="none"/></svg>`,
   ARR: `<svg viewBox="0 0 20 20"><line x1="3" y1="5" x2="13" y2="5"/><line x1="7" y1="10" x2="17" y2="10"/><line x1="4" y1="15" x2="11" y2="15"/></svg>`,
@@ -369,7 +384,7 @@ export function createLeftRail() {
   wheelBtn.innerHTML = `<svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="6.5"/><circle cx="10" cy="5.5" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="6" cy="12" r="1" fill="currentColor" stroke="none"/></svg>`;
   wheelBtn.onclick = () => {
     engine.unlock();
-    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Tab' }));
+    input.emitWheel({ type: 'TOGGLE' });
   };
 
   botGroup.append(wheelBtn, projBtn);
@@ -491,7 +506,7 @@ export function createHeader() {
   };
 
   const modeBtn = document.createElement('button');
-  modeBtn.className = 'hdr-btn';
+  modeBtn.className = 'hdr-btn txt';
   modeBtn.onclick = () => {
     const st = store.getState();
     st.playMode = st.playMode === 'PAT' ? 'SONG' : 'PAT';
@@ -506,28 +521,33 @@ export function createHeader() {
 
   const stopBtn = document.createElement('button');
   stopBtn.className = 'hdr-btn';
-  stopBtn.textContent = '■';
+  stopBtn.innerHTML = ICO.stop;
+  stopBtn.title = 'Stop';
   stopBtn.onclick = () => {
     if (store.getState().isPlaying) engine.togglePlay();
   };
 
   const playBtn = document.createElement('button');
   playBtn.className = 'hdr-btn play';
-  playBtn.textContent = '▶';
+  playBtn.innerHTML = ICO.play;
+  playBtn.title = 'Play';
   playBtn.onclick = () => engine.togglePlay();
 
   const recBtn = document.createElement('button');
   recBtn.className = 'hdr-btn rec';
-  recBtn.textContent = '●';
+  recBtn.innerHTML = ICO.rec;
+  recBtn.title = 'Record';
   recBtn.onclick = () => engine.toggleRecord();
 
   const bpmBox = document.createElement('div');
   bpmBox.className = 'hdr-num';
-  bpmBox.innerHTML = `<span class="lbl">BPM</span><span class="val">132</span>`;
+  bpmBox.innerHTML = `<span class="val">132</span><span class="lbl">BPM</span>`;
   attachVerticalDrag(bpmBox, 'BPM', () => store.getState().bpm, (v) => engine.setBpm(v));
 
   const clkBtn = document.createElement('button');
   clkBtn.className = 'hdr-btn clk-btn';
+  clkBtn.innerHTML = `${ICO.metro}<span class="pip"></span><span class="cin"></span>`;
+  const cinEl = clkBtn.querySelector('.cin');
   clkBtn.title = 'Metronome (Tap: OFF/REC/ON · Hold: 1-Bar Count-In)';
   clkBtn.onclick = () => {
     engine.unlock();
@@ -543,7 +563,9 @@ export function createHeader() {
     store.emit('transport', { countIn: st.countIn });
   });
 
-  center.append(stopBtn, playBtn, recBtn, bpmBox, clkBtn);
+  const divA = document.createElement('span');
+  divA.className = 'hdr-div';
+  center.append(stopBtn, playBtn, recBtn, divA, bpmBox, clkBtn);
 
   // Right
   const right = document.createElement('div');
@@ -551,7 +573,7 @@ export function createHeader() {
 
   const undoBtn = document.createElement('button');
   undoBtn.className = 'hdr-btn undo-btn';
-  undoBtn.textContent = '↶';
+  undoBtn.innerHTML = ICO.undo;
   undoBtn.title = 'Undo (Hold for History)';
   undoBtn.onclick = () => store.undo();
   attachLongPress(undoBtn, () => {
@@ -561,7 +583,7 @@ export function createHeader() {
 
   const redoBtn = document.createElement('button');
   redoBtn.className = 'hdr-btn redo-btn';
-  redoBtn.textContent = '↷';
+  redoBtn.innerHTML = ICO.redo;
   redoBtn.title = 'Redo';
   redoBtn.onclick = () => store.redo();
 
@@ -579,19 +601,20 @@ export function createHeader() {
     redoBtn.classList.toggle('is-empty', hist.redoCount === 0);
     recBtn.classList.toggle('active', st.isRecording);
     playBtn.classList.toggle('active', st.isPlaying);
-    playBtn.textContent = st.isPlaying ? '❚❚' : '▶';
+    const playIco = st.isPlaying ? 'pause' : 'play';
+    if (playBtn.dataset.ico !== playIco) {
+      playBtn.dataset.ico = playIco;
+      playBtn.innerHTML = ICO[playIco];
+    }
     modeBtn.textContent = st.playMode;
     modeBtn.classList.toggle('active', st.playMode === 'SONG');
     bpmBox.querySelector('.val').textContent = String(st.bpm);
     patBadge.textContent = st.activePatternId;
-    if (st.countInBeat > 0) {
-      clkBtn.textContent = `C-${st.countInBeat}`;
-      clkBtn.classList.add('active');
-    } else {
-      const tag = st.metronome === 'on' ? 'CLK' : st.metronome === 'rec' ? 'CLK·R' : 'CLK×';
-      clkBtn.textContent = st.countIn ? `${tag}+` : tag;
-      clkBtn.classList.toggle('active', st.metronome === 'on' || st.countIn);
-    }
+    const metroMode = st.metronome || 'rec';
+    clkBtn.dataset.mode = metroMode;
+    clkBtn.classList.toggle('counting', st.countInBeat > 0);
+    const cinTxt = st.countInBeat > 0 ? String(st.countInBeat) : st.countIn ? '1B' : '';
+    if (cinEl.textContent !== cinTxt) cinEl.textContent = cinTxt;
   }
 
   store.subscribe(sync);

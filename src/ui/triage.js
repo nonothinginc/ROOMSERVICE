@@ -111,7 +111,7 @@ export function renderTriageModal(modalEl) {
   body.className = 'overlay-body';
 
   if (!ov.step || ov.step === 'root') {
-    hdr.innerHTML = `<span>ROOMSERVICE // START</span>`;
+    hdr.innerHTML = `<span>ROOMSERVICE</span>`;
     hdr.appendChild(hdrRight);
 
     const grid = document.createElement('div');
@@ -188,7 +188,7 @@ export function renderTriageModal(modalEl) {
 
     body.appendChild(grid);
   } else if (ov.step === 'beat-kit') {
-    hdr.innerHTML = `<span>BEAT // KIT</span>`;
+    hdr.innerHTML = `<span>BEAT <i class="oh-sub">KIT</i></span>`;
     const grooveBtn = document.createElement('button');
     grooveBtn.className = `ctx-chip ${beatGroove ? 'active' : ''}`;
     grooveBtn.textContent = beatGroove ? 'GROOVE: ON' : 'GROOVE: OFF';
@@ -239,7 +239,7 @@ export function renderTriageModal(modalEl) {
 
     body.appendChild(grid);
   } else if (ov.step === 'melody-inst') {
-    hdr.innerHTML = `<span>MELODY // INSTRUMENT</span>`;
+    hdr.innerHTML = `<span>MELODY <i class="oh-sub">INSTRUMENT</i></span>`;
     hdr.appendChild(hdrRight);
 
     const instruments = getDevicesByCategory('instrument');
@@ -279,7 +279,7 @@ export function renderTriageModal(modalEl) {
 
     body.appendChild(grid);
   } else if (ov.step === 'chords-scale') {
-    hdr.innerHTML = `<span>CHORDS // SCALE</span>`;
+    hdr.innerHTML = `<span>CHORDS <i class="oh-sub">SCALE</i></span>`;
     hdr.appendChild(hdrRight);
 
     const presets = [
@@ -332,7 +332,7 @@ export function renderTriageModal(modalEl) {
 
     body.appendChild(grid);
   } else if (ov.step === 'sample-src') {
-    hdr.innerHTML = `<span>SAMPLE // SOURCE</span>`;
+    hdr.innerHTML = `<span>SAMPLE <i class="oh-sub">SOURCE</i></span>`;
     hdr.appendChild(hdrRight);
 
     const grid = document.createElement('div');
@@ -388,7 +388,7 @@ export function renderTriageModal(modalEl) {
     grid.append(fileBtn, micBtn);
     body.appendChild(grid);
   } else if (ov.step === 'sample-dest') {
-    hdr.innerHTML = `<span>SAMPLE // MODE</span>`;
+    hdr.innerHTML = `<span>SAMPLE <i class="oh-sub">MODE</i></span>`;
     hdr.appendChild(hdrRight);
 
     const grid = document.createElement('div');

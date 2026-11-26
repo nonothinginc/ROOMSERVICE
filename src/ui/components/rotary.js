@@ -40,7 +40,7 @@ export function formatParamValue(param, val) {
 export function createRotary({ param, value, size = 46, onChange, onGestureStart, onGestureEnd, compact = false }) {
   const root = document.createElement('div');
   root.className = 'rotary-unit';
-  if (compact) root.style.width = '46px';
+  if (compact) root.classList.add('compact');
 
   let currentVal = value;
   const r = size * 0.38;
@@ -66,13 +66,13 @@ export function createRotary({ param, value, size = 46, onChange, onGestureStart
   track.setAttribute('r', String(r));
   track.setAttribute('fill', 'none');
   track.setAttribute('stroke', 'var(--border-strong)');
-  track.setAttribute('stroke-width', '1.25');
+  track.setAttribute('stroke-width', '1');
   svg.appendChild(track);
 
   const arc = document.createElementNS(svgNS, 'path');
   arc.setAttribute('fill', 'none');
-  arc.setAttribute('stroke', 'var(--accent)');
-  arc.setAttribute('stroke-width', '1.5');
+  arc.setAttribute('stroke', 'var(--ink)');
+  arc.setAttribute('stroke-width', '2');
   arc.setAttribute('stroke-linecap', 'round');
   svg.appendChild(arc);
 
@@ -92,22 +92,27 @@ export function createRotary({ param, value, size = 46, onChange, onGestureStart
   function render(v) {
     currentVal = v;
     const norm = Math.max(0, Math.min(1, normFromValue(param, v)));
-    const a1 = startAngle;
+    // Bipolar params (pan, gain +/-) sweep out from 12 o'clock
+    const bipolar = param.min < 0 && param.max > 0 && param.curve !== 'exp';
+    const originNorm = bipolar ? Math.max(0, Math.min(1, normFromValue(param, 0))) : 0;
     const a2 = startAngle + sweep * norm;
+    const lo = Math.min(originNorm, norm);
+    const hi = Math.max(originNorm, norm);
+    const aLo = startAngle + sweep * lo;
+    const aHi = startAngle + sweep * hi;
 
-    const x1 = cx + r * Math.cos(a1);
-    const y1 = cy + r * Math.sin(a1);
-    const x2 = cx + r * Math.cos(a2);
-    const y2 = cy + r * Math.sin(a2);
-    const large = sweep * norm > Math.PI ? 1 : 0;
-
-    if (norm > 0.01) {
+    if (hi - lo > 0.01) {
+      const x1 = cx + r * Math.cos(aLo);
+      const y1 = cy + r * Math.sin(aLo);
+      const x2 = cx + r * Math.cos(aHi);
+      const y2 = cy + r * Math.sin(aHi);
+      const large = sweep * (hi - lo) > Math.PI ? 1 : 0;
       arc.setAttribute('d', `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`);
     } else {
       arc.setAttribute('d', '');
     }
 
-    const innerR = r * 0.42;
+    const innerR = r * 0.3;
     pointer.setAttribute('x1', (cx + innerR * Math.cos(a2)).toFixed(2));
     pointer.setAttribute('y1', (cy + innerR * Math.sin(a2)).toFixed(2));
     pointer.setAttribute('x2', (cx + (r - 1.5) * Math.cos(a2)).toFixed(2));

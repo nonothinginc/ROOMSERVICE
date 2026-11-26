@@ -1,6 +1,18 @@
 import { engine } from '../../audio/engine.js';
-import { ROOT_NOTES, SCALES, midiToName } from '../../state/scales.js';
+import { ROOT_NOTES, SCALES, getScale, midiToName } from '../../state/scales.js';
 import { store } from '../../state/store.js';
+
+function setPillLabel(el, label) {
+  const m = /^(.*?) \[(.+)\]$/.exec(label);
+  el.textContent = m ? m[1] : label;
+  if (m) {
+    const k = document.createElement('span');
+    k.className = 'pill-hint';
+    k.textContent = m[2];
+    el.appendChild(k);
+    el.title = `${m[1]} [${m[2]}]`;
+  }
+}
 
 const BTN = {
   A: 0,
@@ -31,14 +43,14 @@ const PAD_ORDER = [
   { deg: 6, btnIdx: BTN.B, glyph: 'B' }
 ];
 
-const SCALE_KEYS = Object.keys(SCALES);
+const SCALE_KEYS = SCALES.map((s) => s.id);
 const GLIDE_MODES = ['OFF', '45ms', '90ms'];
 
 let liveRefs = null;
 
 function getScaleMidi(degree, octShift = 0) {
   const st = store.getState();
-  const sc = SCALES[st.scaleId] || SCALES.MIN;
+  const sc = getScale(st.scaleId).intervals;
   const interval = sc[degree % sc.length] + 12 * Math.floor(degree / sc.length);
   const baseOct = (liveRefs?.baseOctave ?? 3) + octShift;
   return Math.max(24, Math.min(96, 12 * (baseOct + 1) + st.scaleRoot + interval));
@@ -113,7 +125,7 @@ function drawLeadScope(canvas, noteName, glideLabel, droneOn, bg, border, ink, i
   ctx.font = '700 10px "Geist Mono", monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(`${ROOT_NOTES[st.scaleRoot]} ${st.scaleId} // GLIDE ${glideLabel}`, 10, 8);
+  ctx.fillText(`${ROOT_NOTES[st.scaleRoot]} ${st.scaleId}  GLIDE ${glideLabel}`, 10, 8);
   if (droneOn) {
     ctx.fillStyle = accent;
     ctx.textAlign = 'right';
@@ -316,7 +328,7 @@ export function renderLeadOverlay(panelEl, trackId) {
   left.className = 'bc-hdr-group';
   const title = document.createElement('span');
   title.className = 'bc-title';
-  title.textContent = `${tr.code} ${tr.name} // LEAD`;
+  title.textContent = `${tr.code} ${tr.name} LEAD`;
 
   const keyBtn = document.createElement('button');
   keyBtn.className = 'ctx-chip';
@@ -366,7 +378,9 @@ export function renderLeadOverlay(panelEl, trackId) {
   };
 
   const recBtn = document.createElement('button');
-  recBtn.className = 'ctx-chip';
+  recBtn.className = 'ctx-chip icon-only rec-chip';
+  recBtn.title = 'Record';
+  recBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.25" fill="currentColor" stroke="none"/></svg>';
   recBtn.onclick = async () => {
     await engine.toggleRecord();
     syncTop();
@@ -374,7 +388,9 @@ export function renderLeadOverlay(panelEl, trackId) {
 
   const closeBtn = document.createElement('button');
   closeBtn.className = 'ctx-chip';
-  closeBtn.textContent = 'CLOSE [SEL+B]';
+  closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+  closeBtn.title = 'Close [SEL+B]';
+  closeBtn.classList.add('icon-only');
   closeBtn.onclick = () => {
     engine.stopDrone();
     st.detailOverlay = null;
@@ -478,7 +494,7 @@ export function renderLeadOverlay(panelEl, trackId) {
 
   const slideBtn = document.createElement('button');
   slideBtn.className = 'bc-mod-pill';
-  slideBtn.textContent = 'SLIDE [Y]';
+  setPillLabel(slideBtn, 'SLIDE [Y]');
   slideBtn.onclick = () => {
     liveRefs.slideHold = !liveRefs.slideHold;
     slideBtn.classList.toggle('active', liveRefs.slideHold);
@@ -486,7 +502,7 @@ export function renderLeadOverlay(panelEl, trackId) {
 
   const octUpBtn = document.createElement('button');
   octUpBtn.className = 'bc-mod-pill';
-  octUpBtn.textContent = 'OCT+ [R1]';
+  setPillLabel(octUpBtn, 'OCT+ [R1]');
   octUpBtn.onclick = () => {
     liveRefs.baseOctave = Math.min(5, liveRefs.baseOctave + 1);
     syncTop();
@@ -495,7 +511,7 @@ export function renderLeadOverlay(panelEl, trackId) {
 
   const octDnBtn = document.createElement('button');
   octDnBtn.className = 'bc-mod-pill';
-  octDnBtn.textContent = 'OCT- [L1]';
+  setPillLabel(octDnBtn, 'OCT- [L1]');
   octDnBtn.onclick = () => {
     liveRefs.baseOctave = Math.max(1, liveRefs.baseOctave - 1);
     syncTop();
@@ -504,7 +520,7 @@ export function renderLeadOverlay(panelEl, trackId) {
 
   const holdDroneBtn = document.createElement('button');
   holdDroneBtn.className = 'bc-mod-pill';
-  holdDroneBtn.textContent = 'HOLD [R3]';
+  setPillLabel(holdDroneBtn, 'HOLD [R3]');
   holdDroneBtn.onclick = () => {
     engine.setDroneXY(0, 0, 'toggle');
     syncTop();
@@ -518,15 +534,14 @@ export function renderLeadOverlay(panelEl, trackId) {
   function syncTop() {
     const s = store.getState();
     const d = engine.getDroneState();
-    keyBtn.textContent = `KEY ${ROOT_NOTES[s.scaleRoot]}`;
+    keyBtn.textContent = ROOT_NOTES[s.scaleRoot];
     scaleBtn.textContent = s.scaleId;
     octBtn.textContent = `OCT ${liveRefs.baseOctave}`;
-    glideBtn.textContent = `GLIDE ${GLIDE_MODES[liveRefs.glideIdx]}`;
+    glideBtn.textContent = liveRefs.glideIdx > 0 ? `GLIDE ${GLIDE_MODES[liveRefs.glideIdx]}` : 'GLIDE';
     glideBtn.classList.toggle('active', liveRefs.glideIdx > 0);
-    droneBtn.textContent = `DRONE ${d.active ? 'ON' : 'OFF'}`;
+    droneBtn.textContent = 'DRONE';
     droneBtn.classList.toggle('active', d.active);
-    recBtn.textContent = s.isRecording ? '● REC' : '○ REC';
-    recBtn.classList.toggle('active', s.isRecording);
+    recBtn.classList.toggle('rec-on', s.isRecording);
     holdDroneBtn.classList.toggle('active', d.hold);
   }
 

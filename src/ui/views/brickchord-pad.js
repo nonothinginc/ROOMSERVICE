@@ -11,6 +11,18 @@ import { engine } from '../../audio/engine.js';
 import { PATCH_NAMES, STYLE_NAMES } from '../../devices/brickchord.js';
 import { store } from '../../state/store.js';
 
+function setPillLabel(el, label) {
+  const m = /^(.*?) \[(.+)\]$/.exec(label);
+  el.textContent = m ? m[1] : label;
+  if (m) {
+    const k = document.createElement('span');
+    k.className = 'pill-hint';
+    k.textContent = m[2];
+    el.appendChild(k);
+    el.title = `${m[1]} [${m[2]}]`;
+  }
+}
+
 const BTN = {
   A: 0,
   B: 1,
@@ -145,7 +157,7 @@ function drawChordHud(canvas, live, bg, surface, border, ink, inkDim, accent) {
   ctx.font = '700 10px "Geist Mono", monospace';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(`${keyName} ${scaleTag} // OCT ${live.octave >= 0 ? '+' : ''}${live.octave}`, 10, 8);
+  ctx.fillText(`${keyName} ${scaleTag}  OCT ${live.octave >= 0 ? '+' : ''}${live.octave}`, 10, 8);
 
   if (live.roman) {
     ctx.fillStyle = live.active ? accent : inkDim;
@@ -496,10 +508,11 @@ export function renderBrickchordOverlay(panelEl, trackId) {
 
   const titleEl = document.createElement('span');
   titleEl.className = 'bc-title';
-  titleEl.textContent = `${tr.code} // BRICKCHORD`;
+  titleEl.textContent = `${tr.code} BRICKCHORD`;
 
   const keyBtn = document.createElement('button');
   keyBtn.className = 'ctx-chip';
+  keyBtn.title = 'Key';
   keyBtn.onclick = () => {
     const p = getParams(trackId);
     store.setDeviceParam(trackId, 0, 'key', ((p.key ?? 0) + 1) % 12);
@@ -550,7 +563,9 @@ export function renderBrickchordOverlay(panelEl, trackId) {
   };
 
   const recBtn = document.createElement('button');
-  recBtn.className = 'ctx-chip';
+  recBtn.className = 'ctx-chip icon-only rec-chip';
+  recBtn.title = 'Record';
+  recBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.25" fill="currentColor" stroke="none"/></svg>';
   recBtn.onclick = async () => {
     await engine.toggleRecord();
     syncTopBar();
@@ -558,7 +573,8 @@ export function renderBrickchordOverlay(panelEl, trackId) {
 
   const stampBtn = document.createElement('button');
   stampBtn.className = 'ctx-chip solid';
-  stampBtn.textContent = 'STAMP [R2]';
+  stampBtn.textContent = 'STAMP';
+  stampBtn.title = 'Stamp chord to pattern [R2]';
   stampBtn.onclick = () => {
     const n = engine.getBrickchordNode(trackId);
     const live = n?.getLiveState();
@@ -579,7 +595,9 @@ export function renderBrickchordOverlay(panelEl, trackId) {
 
   const closeBtn = document.createElement('button');
   closeBtn.className = 'ctx-chip';
-  closeBtn.textContent = 'CLOSE [SEL+B]';
+  closeBtn.innerHTML = '<svg class="ico" viewBox="0 0 16 16"><path d="M4 4l8 8M12 4l-8 8"/></svg>';
+  closeBtn.title = 'Close [SEL+B]';
+  closeBtn.classList.add('icon-only');
   closeBtn.onclick = () => {
     engine.getBrickchordNode(trackId)?.releaseChord?.(true);
     st.detailOverlay = null;
@@ -758,7 +776,7 @@ export function renderBrickchordOverlay(panelEl, trackId) {
   const modPills = modSpecs.map(({ key, label }) => {
     const pill = document.createElement('button');
     pill.className = 'bc-mod-pill';
-    pill.textContent = label;
+    setPillLabel(pill, label);
     pill.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       if (!liveRefs) return;
@@ -774,7 +792,7 @@ export function renderBrickchordOverlay(panelEl, trackId) {
 
   const fxHoldBtn = document.createElement('button');
   fxHoldBtn.className = 'bc-mod-pill';
-  fxHoldBtn.textContent = 'FX HOLD [R3]';
+  setPillLabel(fxHoldBtn, 'FX HOLD [R3]');
   fxHoldBtn.onclick = () => {
     liveRefs?.node?.setFxStick(0, 0, 'toggle');
     syncTopBar();
@@ -789,17 +807,16 @@ export function renderBrickchordOverlay(panelEl, trackId) {
     const p = getParams(trackId);
     const curState = store.getState();
     const live = engine.getBrickchordNode(trackId)?.getLiveState() || {};
-    keyBtn.textContent = `KEY ${NOTE_NAMES[Math.round(p.key ?? 0)]}`;
+    keyBtn.textContent = NOTE_NAMES[Math.round(p.key ?? 0)];
     scaleBtn.textContent = SCALE_SHORT[Math.round(p.scale ?? 1)] || 'MIN';
     const oct = Math.round(p.octave ?? 0);
-    octBtn.textContent = `OCT ${oct >= 0 ? '+' : ''}${oct}`;
+    octBtn.textContent = `${oct >= 0 ? '+' : ''}${oct}`;
     const bassOn = (p.bass ?? 65) > 5;
-    bassBtn.textContent = `BASS ${bassOn ? 'ON' : 'OFF'}`;
+    bassBtn.textContent = 'BASS';
     bassBtn.classList.toggle('active', bassOn);
-    latchBtn.textContent = `LATCH ${live.latch ? 'ON' : 'OFF'}`;
+    latchBtn.textContent = 'LATCH';
     latchBtn.classList.toggle('active', Boolean(live.latch));
-    recBtn.textContent = curState.isRecording ? '● REC' : '○ REC';
-    recBtn.classList.toggle('active', Boolean(curState.isRecording));
+    recBtn.classList.toggle('rec-on', Boolean(curState.isRecording));
     fxHoldBtn.classList.toggle('active', Boolean(live.fxHold));
   }
 
@@ -813,11 +830,11 @@ export function renderBrickchordOverlay(panelEl, trackId) {
 
   function flashStamp() {
     stampBtn.classList.add('active');
-    stampBtn.textContent = 'STAMPED ✓';
+    stampBtn.textContent = 'STAMP';
     setTimeout(() => {
       if (stampBtn.isConnected) {
         stampBtn.classList.remove('active');
-        stampBtn.textContent = 'STAMP [R2]';
+        stampBtn.textContent = 'STAMP';
       }
     }, 220);
   }
