@@ -1,0 +1,17 @@
+{
+  "name": "ROOMSERVICE",
+  "short_name": "ROOMSERVICE",
+  "start_url": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0D0D0F",
+  "theme_color": "#0D0D0F",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
