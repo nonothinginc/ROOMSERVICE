@@ -1,4 +1,5 @@
-import { engine } from '../../audio/engine.js';
+import { dbToMeterNorm, engine } from '../../audio/engine.js';
+import { getDevice, getDevicesByCategory } from '../../device-registry.js';
 import { store } from '../../state/store.js';
 import { attachLongPress } from '../components/longpress.js';
 import { createRotary } from '../components/rotary.js';
@@ -9,56 +10,164 @@ function gainToDbText(gain) {
   return `${db >= 0 ? '+' : ''}${db.toFixed(1)}`;
 }
 
-function drawSegmentedMeter(canvas, levelL, levelR = null, peakHold = { l: 0, r: 0 }) {
+function createMeterState() {
+  return {
+    peakL: 0,
+    peakR: 0,
+    rmsL: 0,
+    rmsR: 0,
+    holdL: 0,
+    holdR: 0,
+    holdAtL: 0,
+    holdAtR: 0,
+    peakDbHold: -60,
+    peakDbAt: 0,
+    clipLatched: false,
+    grHold: 0
+  };
+}
+
+const METER_TICKS_DB = [0, -6, -12, -24];
+
+function drawStudioMeter(canvas, info, mState, isMaster = false) {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const rect = canvas.getBoundingClientRect();
+  const cssW = rect.width || (isMaster ? 32 : 18);
+  const cssH = rect.height || 180;
+  const w = Math.max(12, Math.round(cssW * dpr));
+  const h = Math.max(40, Math.round(cssH * dpr));
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+
+  const now = performance.now();
+  const normPkL = dbToMeterNorm(info.peakDbL);
+  const normPkR = dbToMeterNorm(info.peakDbR);
+  const normRmL = dbToMeterNorm(info.rmsDbL);
+  const normRmR = dbToMeterNorm(info.rmsDbR);
+
+  // Fast attack, calibrated ballistic decay (~18 dB/s)
+  mState.peakL = normPkL >= mState.peakL ? normPkL : Math.max(0, mState.peakL - 0.015);
+  mState.peakR = normPkR >= mState.peakR ? normPkR : Math.max(0, mState.peakR - 0.015);
+  mState.rmsL = normRmL >= mState.rmsL ? mState.rmsL + (normRmL - mState.rmsL) * 0.45 : Math.max(0, mState.rmsL - 0.01);
+  mState.rmsR = normRmR >= mState.rmsR ? mState.rmsR + (normRmR - mState.rmsR) * 0.45 : Math.max(0, mState.rmsR - 0.01);
+
+  if (normPkL >= mState.holdL) {
+    mState.holdL = normPkL;
+    mState.holdAtL = now;
+  } else if (now - mState.holdAtL > 1200) {
+    mState.holdL = Math.max(mState.peakL, mState.holdL - 0.012);
+  }
+
+  if (normPkR >= mState.holdR) {
+    mState.holdR = normPkR;
+    mState.holdAtR = now;
+  } else if (now - mState.holdAtR > 1200) {
+    mState.holdR = Math.max(mState.peakR, mState.holdR - 0.012);
+  }
+
+  if (info.peakDb >= mState.peakDbHold) {
+    mState.peakDbHold = info.peakDb;
+    mState.peakDbAt = now;
+  } else if (now - mState.peakDbAt > 1400) {
+    mState.peakDbHold = Math.max(info.peakDb, mState.peakDbHold - 0.35);
+  }
+
+  if (info.clip) mState.clipLatched = true;
+  if (isMaster) {
+    const gr = info.grDb || 0;
+    mState.grHold = gr >= mState.grHold ? gr : Math.max(0, mState.grHold - 0.25);
+  }
+
   const ctx = canvas.getContext('2d');
-  const w = canvas.width;
-  const h = canvas.height;
   const styles = getComputedStyle(document.documentElement);
   const bg = styles.getPropertyValue('--surface-recessed').trim() || styles.getPropertyValue('--bg').trim();
-  const offCol = styles.getPropertyValue('--border').trim();
+  const border = styles.getPropertyValue('--border').trim();
   const ink = styles.getPropertyValue('--ink').trim();
   const accent = styles.getPropertyValue('--accent').trim();
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  const amber = isLight ? '#B87200' : '#E5A035';
 
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = bg;
   ctx.beginPath();
-  ctx.roundRect(0, 0, w, h, 3);
+  ctx.roundRect(0, 0, w, h, Math.round(3 * dpr));
   ctx.fill();
 
-  const segs = 18;
-  const padY = 4;
-  const padX = 2;
-  const slotH = (h - padY * 2) / segs;
-  const barH = Math.max(2, slotH - 2);
-  const isStereo = levelR !== null;
+  const padY = Math.round(4 * dpr);
+  const padX = Math.round(2 * dpr);
+  const plotH = Math.max(20, h - padY * 2);
 
-  peakHold.l = Math.max(levelL, peakHold.l * 0.965);
-  if (isStereo) {
-    peakHold.r = Math.max(levelR, peakHold.r * 0.965);
+  // Calibrated dB gridlines aligned with IEC breakpoints
+  ctx.strokeStyle = border;
+  ctx.lineWidth = Math.max(1, Math.round(dpr));
+  for (const db of METER_TICKS_DB) {
+    const norm = dbToMeterNorm(db);
+    const y = Math.round(padY + (1 - norm) * plotH) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(padX, y);
+    ctx.lineTo(w - padX, y);
+    ctx.stroke();
   }
 
-  const drawCol = (x, colW, val, holdVal) => {
-    const activeCount = Math.round(Math.max(0, Math.min(1, val)) * segs);
-    const holdIdx = holdVal > 0.04 ? Math.min(segs - 1, Math.floor(Math.min(1, holdVal) * segs)) : -1;
-    for (let i = 0; i < segs; i++) {
-      const y = h - padY - (i + 1) * slotH + 1;
-      const isHot = i >= segs - 4;
-      const isLit = i < activeCount || i === holdIdx;
-      ctx.fillStyle = isLit ? (isHot ? accent : ink) : offCol;
-      ctx.beginPath();
-      ctx.roundRect(x, y, colW, barH, 1.5);
-      ctx.fill();
+  const drawZones = (x, colW, normTop, alpha) => {
+    if (normTop <= 0.005) return;
+    const norm12 = 0.60; // -12 dB
+    const norm3 = 0.89; // -3 dB
+    const zones = [
+      { lo: 0, hi: norm12, color: ink },
+      { lo: norm12, hi: norm3, color: amber },
+      { lo: norm3, hi: 1.0, color: accent }
+    ];
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (const z of zones) {
+      const a = Math.max(z.lo, 0);
+      const b = Math.min(z.hi, normTop);
+      if (b <= a) continue;
+      const yTop = padY + (1 - b) * plotH;
+      const yBot = padY + (1 - a) * plotH;
+      ctx.fillStyle = z.color;
+      ctx.fillRect(x, yTop, colW, Math.max(1, yBot - yTop));
+    }
+    ctx.restore();
+  };
+
+  const drawChannelBar = (x, colW, peakN, rmsN, holdN) => {
+    // Peak halo behind RMS body
+    drawZones(x, colW, peakN, 0.36);
+    // Solid RMS energy body
+    drawZones(x, colW, rmsN, 0.94);
+    // Crisp 2px peak-hold indicator
+    if (holdN > 0.02) {
+      const hy = Math.round(padY + (1 - Math.min(1, holdN)) * plotH);
+      ctx.fillStyle = holdN >= 0.89 ? accent : holdN >= 0.60 ? amber : ink;
+      ctx.fillRect(x, Math.max(padY, hy - Math.round(dpr)), colW, Math.max(2, Math.round(2 * dpr)));
     }
   };
 
-  if (isStereo) {
-    const gap = 3;
-    const colW = Math.max(4, Math.floor((w - padX * 2 - gap) / 2));
-    drawCol(padX, colW, levelL, peakHold.l);
-    drawCol(padX + colW + gap, colW, levelR, peakHold.r);
+  const gap = Math.max(2, Math.round(2 * dpr));
+  if (isMaster) {
+    const grW = Math.max(3, Math.round(4 * dpr));
+    const barsW = w - padX * 2 - grW - gap * 2;
+    const colW = Math.max(3, Math.floor(barsW / 2));
+    drawChannelBar(padX, colW, mState.peakL, mState.rmsL, mState.holdL);
+    drawChannelBar(padX + colW + gap, colW, mState.peakR, mState.rmsR, mState.holdR);
+
+    // Top-down limiter Gain Reduction (GR) meter
+    const grX = padX + colW * 2 + gap * 2;
+    ctx.fillStyle = border;
+    ctx.fillRect(grX, padY, grW, plotH);
+    const grNorm = Math.min(1, mState.grHold / 12);
+    if (grNorm > 0.01) {
+      ctx.fillStyle = accent;
+      ctx.fillRect(grX, padY, grW, Math.max(2, grNorm * plotH));
+    }
   } else {
-    const colW = Math.max(4, w - padX * 2);
-    drawCol(padX, colW, levelL, peakHold.l);
+    const colW = Math.max(3, Math.floor((w - padX * 2 - gap) / 2));
+    drawChannelBar(padX, colW, mState.peakL, mState.rmsL, mState.holdL);
+    drawChannelBar(padX + colW + gap, colW, mState.peakR, mState.rmsR, mState.holdR);
   }
 }
 
@@ -90,7 +199,7 @@ export function createMixView() {
   root.appendChild(shell);
 
   const stripRefs = [];
-  const meterPeaks = Array.from({ length: 11 }, () => ({ l: 0, r: 0 }));
+  const meterStates = Array.from({ length: 11 }, () => createMeterState());
   let returnARef = null;
   let returnBRef = null;
   let masterRef = null;
@@ -149,7 +258,7 @@ export function createMixView() {
     hdrEl.addEventListener('pointermove', (e) => {
       if (!panning) return;
       const dx = e.clientX - startX;
-      if (!moved && Math.abs(dx) > 5) {
+      if (!moved && Math.abs(dx) > 6) {
         moved = true;
         grid.classList.add('is-panning');
         scrollRail.classList.add('active');
@@ -232,7 +341,7 @@ export function createMixView() {
     });
   }
 
-  function buildStrip({ code, name, isChannel, trackId, isMaster = false }) {
+  function buildStrip({ code, name, isChannel, trackId, meterIdx, isMaster = false }) {
     const el = document.createElement('div');
     el.className = 'mix-strip';
 
@@ -254,16 +363,12 @@ export function createMixView() {
       });
     } else if (!isMaster) {
       attachHeaderPan(hdr, null);
-    }
-
-    attachLongPress(hdr, () => {
-      if (isChannel) {
-        store.getState().detailOverlay = { type: 'mix-rename', trackId };
-      } else {
+    } else {
+      attachLongPress(hdr, () => {
         store.getState().detailOverlay = { type: 'mix', trackId: null };
-      }
-      store.emit('overlay', store.getState().detailOverlay);
-    });
+        store.emit('overlay', store.getState().detailOverlay);
+      });
+    }
 
     const sends = document.createElement('div');
     sends.className = 'mix-sends';
@@ -323,6 +428,42 @@ export function createMixView() {
     }
     el.appendChild(sends);
 
+    // FX Access Button per channel / return strip
+    let fxBtn = null;
+    if (isChannel) {
+      fxBtn = document.createElement('button');
+      fxBtn.className = 'mix-fx-btn';
+      fxBtn.title = 'Channel FX Chain';
+      fxBtn.onclick = (e) => {
+        e.stopPropagation();
+        store.setSelectedTrack(trackId);
+        store.getState().detailOverlay = { type: 'mix-fx', trackId };
+        store.emit('overlay', store.getState().detailOverlay);
+      };
+      el.appendChild(fxBtn);
+    } else if (code === 'SND A' || code === 'SND B') {
+      const key = code === 'SND A' ? 'sendA' : 'sendB';
+      fxBtn = document.createElement('button');
+      fxBtn.className = 'mix-fx-btn';
+      fxBtn.textContent = 'FX';
+      fxBtn.onclick = (e) => {
+        e.stopPropagation();
+        store.getState().detailOverlay = { type: 'mix-return-fx', returnKey: key };
+        store.emit('overlay', store.getState().detailOverlay);
+      };
+      el.appendChild(fxBtn);
+    } else {
+      const limBtn = document.createElement('button');
+      limBtn.className = 'mix-fx-btn';
+      limBtn.textContent = 'LIM';
+      limBtn.onclick = (e) => {
+        e.stopPropagation();
+        store.getState().detailOverlay = { type: 'mix', trackId: null };
+        store.emit('overlay', store.getState().detailOverlay);
+      };
+      el.appendChild(limBtn);
+    }
+
     const ms = document.createElement('div');
     ms.className = 'mix-ms';
     let muteBtn = null;
@@ -361,17 +502,37 @@ export function createMixView() {
     } else {
       const tag = document.createElement('span');
       tag.className = 'mix-code';
-      tag.textContent = '0 dB LIM';
+      tag.textContent = 'MST BUS';
       ms.appendChild(tag);
     }
     el.appendChild(ms);
+
+    // Interactive Peak dBFS / Clip Latch Readout
+    const peakBadge = document.createElement('button');
+    peakBadge.className = 'mix-peak-badge';
+    peakBadge.textContent = '---';
+    peakBadge.title = 'Tap to reset peak & clip';
+    peakBadge.onclick = (e) => {
+      e.stopPropagation();
+      const msState = meterStates[meterIdx];
+      if (msState) {
+        msState.clipLatched = false;
+        msState.peakDbHold = -60;
+        msState.holdL = 0;
+        msState.holdR = 0;
+        msState.grHold = 0;
+      }
+      peakBadge.classList.remove('clip', 'warm');
+      peakBadge.textContent = '---';
+    };
+    el.appendChild(peakBadge);
 
     const faderArea = document.createElement('div');
     faderArea.className = 'mix-fader-area';
 
     const scaleCol = document.createElement('div');
     scaleCol.className = 'fader-scale';
-    ['+6', '0', '-6', '-12', '-24', '-∞'].forEach((mark) => {
+    ['0', '-6', '-12', '-24', '-48'].forEach((mark) => {
       const s = document.createElement('span');
       s.textContent = mark;
       scaleCol.appendChild(s);
@@ -387,8 +548,8 @@ export function createMixView() {
 
     const meterCanvas = document.createElement('canvas');
     meterCanvas.className = `meter-canvas ${isMaster ? 'is-stereo' : ''}`;
-    meterCanvas.width = isMaster ? 26 : 16;
-    meterCanvas.height = 240;
+    meterCanvas.width = isMaster ? 32 : 18;
+    meterCanvas.height = 200;
     faderArea.append(scaleCol, faderTrack, meterCanvas);
     el.appendChild(faderArea);
 
@@ -401,6 +562,8 @@ export function createMixView() {
     return {
       el,
       hdr,
+      fxBtn,
+      peakBadge,
       faderTrack,
       faderCap,
       meterCanvas,
@@ -416,7 +579,7 @@ export function createMixView() {
   // 8 Channels
   for (let i = 0; i < 8; i++) {
     const tr = store.getState().tracks[i];
-    const ref = buildStrip({ code: tr.code, name: tr.name, isChannel: true, trackId: i });
+    const ref = buildStrip({ code: tr.code, name: tr.name, isChannel: true, trackId: i, meterIdx: i });
     attachFader(
       ref.faderTrack,
       `${tr.code} VOL`,
@@ -431,7 +594,7 @@ export function createMixView() {
   sep.className = 'mix-sep';
   grid.appendChild(sep);
 
-  returnARef = buildStrip({ code: 'SND A', name: 'DELAY', isChannel: false });
+  returnARef = buildStrip({ code: 'SND A', name: 'DELAY', isChannel: false, meterIdx: 8 });
   attachFader(
     returnARef.faderTrack,
     'SND A VOL',
@@ -443,7 +606,7 @@ export function createMixView() {
   );
   grid.appendChild(returnARef.el);
 
-  returnBRef = buildStrip({ code: 'SND B', name: 'VERB', isChannel: false });
+  returnBRef = buildStrip({ code: 'SND B', name: 'VERB', isChannel: false, meterIdx: 9 });
   attachFader(
     returnBRef.faderTrack,
     'SND B VOL',
@@ -455,7 +618,7 @@ export function createMixView() {
   );
   grid.appendChild(returnBRef.el);
 
-  masterRef = buildStrip({ code: 'MST', name: 'MASTER', isChannel: false, isMaster: true });
+  masterRef = buildStrip({ code: 'MST', name: 'MASTER', isChannel: false, meterIdx: 10, isMaster: true });
   masterRef.el.classList.add('is-master');
   attachFader(
     masterRef.faderTrack,
@@ -474,6 +637,18 @@ export function createMixView() {
     ref.dbEl.textContent = gainToDbText(vol);
   }
 
+  function renderFxBadge(btn, tr) {
+    if (!btn || !tr) return;
+    const fxSlots = tr.inserts.slice(1);
+    const activeCount = fxSlots.filter((s) => !s.bypass).length;
+    btn.classList.toggle('has-fx', activeCount > 0);
+    const pips = fxSlots
+      .slice(0, 5)
+      .map((s) => `<i class="${s.bypass ? 'byp' : 'on'}"></i>`)
+      .join('');
+    btn.innerHTML = `<span>FX${fxSlots.length}</span>${pips ? `<span class="fx-pips">${pips}</span>` : ''}`;
+  }
+
   function sync() {
     const st = store.getState();
     for (let i = 0; i < 8; i++) {
@@ -485,6 +660,7 @@ export function createMixView() {
       ref.soloBtn.classList.toggle('active', tr.solo);
       ref.sendARot?.setValue(tr.sendA);
       ref.sendBRot?.setValue(tr.sendB);
+      renderFxBadge(ref.fxBtn, tr);
       updateCap(ref, tr.volume);
     }
     returnARef.muteBtn.classList.toggle('active', st.returns.sendA.mute);
@@ -525,7 +701,7 @@ export function createMixView() {
       store.pushHistory(`${tr.code} MUTE`);
       store.setTrackParam(tid, 'mute', !tr.mute);
     } else if (action.type === 'A_HOLD') {
-      st.detailOverlay = { type: 'mix', trackId: tid };
+      st.detailOverlay = { type: 'mix-fx', trackId: tid };
       store.emit('overlay', st.detailOverlay);
     } else if (action.type === 'X') {
       store.pushHistory(`${tr.code} SOLO`);
@@ -539,16 +715,47 @@ export function createMixView() {
     }
   }
 
+  function updatePeakBadge(badgeEl, mState, isMaster = false) {
+    if (!badgeEl) return;
+    if (mState.clipLatched) {
+      badgeEl.classList.add('clip');
+      badgeEl.classList.remove('warm');
+      badgeEl.textContent = 'CLIP';
+      return;
+    }
+    badgeEl.classList.remove('clip');
+    if (isMaster && mState.grHold >= 0.4) {
+      badgeEl.classList.add('warm');
+      badgeEl.textContent = `GR-${mState.grHold.toFixed(1)}`;
+      return;
+    }
+    const db = mState.peakDbHold;
+    badgeEl.classList.toggle('warm', db >= -6);
+    if (db <= -57) {
+      badgeEl.textContent = '---';
+    } else {
+      badgeEl.textContent = `${db >= 0 ? '+' : ''}${db.toFixed(1)}`;
+    }
+  }
+
   function tick() {
     updateScrollRail();
     for (let i = 0; i < 8; i++) {
-      drawSegmentedMeter(stripRefs[i].meterCanvas, engine.getTrackMeter(i), null, meterPeaks[i]);
+      const info = engine.getTrackMeterInfo(i);
+      drawStudioMeter(stripRefs[i].meterCanvas, info, meterStates[i], false);
+      updatePeakBadge(stripRefs[i].peakBadge, meterStates[i], false);
     }
-    const retM = engine.getReturnMeters();
-    drawSegmentedMeter(returnARef.meterCanvas, retM.sendA, null, meterPeaks[8]);
-    drawSegmentedMeter(returnBRef.meterCanvas, retM.sendB, null, meterPeaks[9]);
-    const mstLevel = engine.getMasterMeter();
-    drawSegmentedMeter(masterRef.meterCanvas, mstLevel, Math.min(1, mstLevel * 0.96), meterPeaks[10]);
+    const infoA = engine.getReturnMeterInfo('sendA');
+    drawStudioMeter(returnARef.meterCanvas, infoA, meterStates[8], false);
+    updatePeakBadge(returnARef.peakBadge, meterStates[8], false);
+
+    const infoB = engine.getReturnMeterInfo('sendB');
+    drawStudioMeter(returnBRef.meterCanvas, infoB, meterStates[9], false);
+    updatePeakBadge(returnBRef.peakBadge, meterStates[9], false);
+
+    const infoM = engine.getMasterMeterInfo();
+    drawStudioMeter(masterRef.meterCanvas, infoM, meterStates[10], true);
+    updatePeakBadge(masterRef.peakBadge, meterStates[10], true);
   }
 
   function renderTrackRenameModal(modalEl) {
@@ -630,6 +837,198 @@ export function createMixView() {
     });
   }
 
+  function renderChannelFxModal(modalEl) {
+    const st = store.getState();
+    const tid = st.detailOverlay?.trackId ?? st.selectedTrackId;
+    const tr = st.tracks[tid];
+    const close = () => {
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    };
+    if (!tr) {
+      close();
+      return;
+    }
+
+    function rebuild() {
+      modalEl.innerHTML = '';
+      const hdr = document.createElement('div');
+      hdr.className = 'overlay-hdr';
+      hdr.innerHTML = `<span>${tr.code} ${tr.name} // FX RACK</span>`;
+
+      const hdrRight = document.createElement('div');
+      hdrRight.style.display = 'flex';
+      hdrRight.style.gap = '6px';
+
+      const openDspBtn = document.createElement('button');
+      openDspBtn.className = 'ctx-chip solid';
+      openDspBtn.textContent = 'DSP VIEW ↗';
+      openDspBtn.onclick = () => {
+        store.setSelectedTrack(tid);
+        store.setView('DSP');
+        close();
+      };
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'ctx-chip';
+      closeBtn.textContent = 'CLOSE [B]';
+      closeBtn.onclick = close;
+
+      hdrRight.append(openDspBtn, closeBtn);
+      hdr.appendChild(hdrRight);
+
+      const body = document.createElement('div');
+      body.className = 'overlay-body';
+
+      const chainHdr = document.createElement('div');
+      chainHdr.className = 'menu-section-hdr';
+      chainHdr.textContent = 'SIGNAL CHAIN';
+
+      const chainList = document.createElement('div');
+      chainList.className = 'clip-menu-list';
+
+      tr.inserts.forEach((slot, slotIdx) => {
+        const def = getDevice(slot.deviceId);
+        if (!def) return;
+        const row = document.createElement('div');
+        row.className = `mix-fx-row ${slot.bypass ? 'bypassed' : ''}`;
+
+        const tag = document.createElement('span');
+        tag.className = 'mix-fx-tag';
+        tag.textContent = slotIdx === 0 ? 'SRC' : `FX${slotIdx}`;
+
+        const openBtn = document.createElement('button');
+        openBtn.className = 'mix-fx-name-btn';
+        openBtn.textContent = def.meta.name;
+        openBtn.onclick = () => {
+          store.setSelectedTrack(tid);
+          st.selectedDeviceSlotIdx = slotIdx;
+          st.detailOverlay =
+            slot.deviceId === 'drum8'
+              ? { type: 'mpc', trackId: tid }
+              : { type: 'dsp', trackId: tid, slotIdx };
+          store.emit('overlay', st.detailOverlay);
+        };
+
+        row.append(tag, openBtn);
+
+        if (slotIdx === 0) {
+          if (slot.deviceId === 'drum8') {
+            const mpcBtn = document.createElement('button');
+            mpcBtn.className = 'ctx-chip active';
+            mpcBtn.textContent = 'MPC';
+            mpcBtn.onclick = () => {
+              st.detailOverlay = { type: 'mpc', trackId: tid };
+              store.emit('overlay', st.detailOverlay);
+            };
+            row.appendChild(mpcBtn);
+          }
+          const swapBtn = document.createElement('button');
+          swapBtn.className = 'ctx-chip';
+          swapBtn.textContent = 'SWAP';
+          swapBtn.onclick = () => {
+            store.setSelectedTrack(tid);
+            st.detailOverlay = { type: 'inst-menu' };
+            store.emit('overlay', st.detailOverlay);
+          };
+          row.appendChild(swapBtn);
+        } else {
+          const bypBtn = document.createElement('button');
+          bypBtn.className = `ctx-chip ${!slot.bypass ? 'active' : ''}`;
+          bypBtn.textContent = slot.bypass ? 'BYP' : 'ON';
+          bypBtn.onclick = () => {
+            store.toggleDeviceBypass(tid, slotIdx);
+            rebuild();
+          };
+
+          const delBtn = document.createElement('button');
+          delBtn.className = 'ctx-chip';
+          delBtn.textContent = '✕';
+          delBtn.onclick = () => {
+            store.removeInsertDevice(tid, slotIdx);
+            rebuild();
+          };
+          row.append(bypBtn, delBtn);
+        }
+
+        chainList.appendChild(row);
+      });
+
+      const addHdr = document.createElement('div');
+      addHdr.className = 'menu-section-hdr';
+      addHdr.textContent = '+ ADD EFFECT';
+
+      const fxGrid = document.createElement('div');
+      fxGrid.className = 'inst-grid';
+      for (const dev of getDevicesByCategory('effect')) {
+        const b = document.createElement('button');
+        b.className = 'ctx-chip';
+        b.style.height = '34px';
+        b.style.justifyContent = 'space-between';
+        b.innerHTML = `<span>+ ${dev.meta.name}</span><span style="opacity:0.5">${dev.meta.params.length}P</span>`;
+        b.onclick = () => {
+          store.addInsertDevice(tid, dev.meta.id);
+          rebuild();
+        };
+        fxGrid.appendChild(b);
+      }
+
+      body.append(chainHdr, chainList, addHdr, fxGrid);
+      modalEl.append(hdr, body);
+    }
+
+    rebuild();
+  }
+
+  function renderReturnFxModal(modalEl) {
+    const st = store.getState();
+    const key = st.detailOverlay?.returnKey || 'sendA';
+    const ret = st.returns[key];
+    const def = getDevice(ret?.deviceId);
+    const close = () => {
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    };
+    if (!ret || !def) {
+      close();
+      return;
+    }
+
+    const hdr = document.createElement('div');
+    hdr.className = 'overlay-hdr';
+    hdr.innerHTML = `<span>${key === 'sendA' ? 'SND A' : 'SND B'} // ${def.meta.name}</span>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ctx-chip';
+    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.onclick = close;
+    hdr.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'overlay-body';
+
+    const knobsRow = document.createElement('div');
+    knobsRow.style.display = 'flex';
+    knobsRow.style.flexWrap = 'wrap';
+    knobsRow.style.justifyContent = 'space-around';
+    knobsRow.style.gap = '12px';
+    knobsRow.style.padding = '12px 0';
+
+    for (const p of def.meta.params) {
+      const rot = createRotary({
+        param: p,
+        value: ret.params[p.id],
+        size: 54,
+        onGestureStart: () => store.beginGesture(`${def.meta.name} ${p.label}`),
+        onGestureEnd: () => store.commitGesture(),
+        onChange: (v) => store.setReturnParam(key, p.id, v)
+      });
+      knobsRow.appendChild(rot.el);
+    }
+
+    body.appendChild(knobsRow);
+    modalEl.append(hdr, body);
+  }
+
   function renderDetailOverlay(panelEl) {
     const st = store.getState();
     const hdr = document.createElement('div');
@@ -671,6 +1070,8 @@ export function createMixView() {
     tick,
     handleAction,
     renderDetailOverlay,
-    renderTrackRenameModal
+    renderTrackRenameModal,
+    renderChannelFxModal,
+    renderReturnFxModal
   };
 }

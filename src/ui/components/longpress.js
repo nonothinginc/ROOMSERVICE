@@ -1,4 +1,4 @@
-export function attachLongPress(el, onLongPress, duration = 450) {
+export function attachLongPress(el, onLongPress, duration = 420, moveThreshold = 14) {
   let timer = null;
   let startX = 0;
   let startY = 0;
@@ -26,7 +26,7 @@ export function attachLongPress(el, onLongPress, duration = 450) {
 
   el.addEventListener('pointermove', (e) => {
     if (!timer) return;
-    if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+    if (Math.hypot(e.clientX - startX, e.clientY - startY) > moveThreshold) {
       clear();
     }
   });

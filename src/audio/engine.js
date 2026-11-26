@@ -23,6 +23,111 @@ function evalAutoClip(autoClip, normX) {
   return 0.5;
 }
 
+const DB_METER_POINTS = [
+  [-60, 0],
+  [-48, 0.05],
+  [-36, 0.14],
+  [-24, 0.30],
+  [-18, 0.44],
+  [-12, 0.60],
+  [-6, 0.78],
+  [-3, 0.89],
+  [0, 1.0]
+];
+
+export function dbToMeterNorm(db) {
+  if (!Number.isFinite(db) || db <= -60) return 0;
+  if (db >= 0) return 1;
+  for (let i = 0; i < DB_METER_POINTS.length - 1; i++) {
+    const [db0, n0] = DB_METER_POINTS[i];
+    const [db1, n1] = DB_METER_POINTS[i + 1];
+    if (db <= db1) {
+      const t = (db - db0) / (db1 - db0);
+      return n0 + t * (n1 - n0);
+    }
+  }
+  return 1;
+}
+
+function emptyMeterInfo() {
+  return {
+    peakL: 0,
+    peakR: 0,
+    rmsL: 0,
+    rmsR: 0,
+    peakDbL: -60,
+    peakDbR: -60,
+    rmsDbL: -60,
+    rmsDbR: -60,
+    peakDb: -60,
+    rmsDb: -60,
+    clip: false
+  };
+}
+
+function createStereoMeter(rawCtx) {
+  const input = rawCtx.createGain();
+  input.channelCount = 2;
+  input.channelCountMode = 'explicit';
+  input.channelInterpretation = 'speakers';
+
+  const splitter = rawCtx.createChannelSplitter(2);
+  const analyserL = rawCtx.createAnalyser();
+  const analyserR = rawCtx.createAnalyser();
+  analyserL.fftSize = 256;
+  analyserR.fftSize = 256;
+  analyserL.smoothingTimeConstant = 0;
+  analyserR.smoothingTimeConstant = 0;
+
+  input.connect(splitter);
+  splitter.connect(analyserL, 0);
+  splitter.connect(analyserR, 1);
+
+  const bufL = new Float32Array(256);
+  const bufR = new Float32Array(256);
+
+  function sample() {
+    analyserL.getFloatTimeDomainData(bufL);
+    analyserR.getFloatTimeDomainData(bufR);
+    let pkL = 0;
+    let pkR = 0;
+    let sqL = 0;
+    let sqR = 0;
+    for (let i = 0; i < 256; i++) {
+      const vL = bufL[i];
+      const vR = bufR[i];
+      const aL = vL < 0 ? -vL : vL;
+      const aR = vR < 0 ? -vR : vR;
+      if (aL > pkL) pkL = aL;
+      if (aR > pkR) pkR = aR;
+      sqL += vL * vL;
+      sqR += vR * vR;
+    }
+    const rmsL = Math.sqrt(sqL / 256);
+    const rmsR = Math.sqrt(sqR / 256);
+    const toDb = (v) => Math.max(-60, Math.min(3, 20 * Math.log10(Math.max(v, 1e-5))));
+    const peakDbL = toDb(pkL);
+    const peakDbR = toDb(pkR);
+    const rmsDbL = toDb(rmsL);
+    const rmsDbR = toDb(rmsR);
+    return {
+      peakL: pkL,
+      peakR: pkR,
+      rmsL,
+      rmsR,
+      peakDbL,
+      peakDbR,
+      rmsDbL,
+      rmsDbR,
+      peakDb: Math.max(peakDbL, peakDbR),
+      rmsDb: Math.max(rmsDbL, rmsDbR),
+      clip: pkL >= 0.988 || pkR >= 0.988
+    };
+  }
+
+  return { input, sample };
+}
+
 class AudioEngine {
   constructor() {
     this.initialized = false;
@@ -37,6 +142,11 @@ class AudioEngine {
     this.masterGain = null;
     this.limiter = null;
     this.masterMeter = null;
+    this.masterPreMeter = null;
+    this.masterStereoMeter = null;
+    this.returnAStereoMeter = null;
+    this.returnBStereoMeter = null;
+    this.smoothedGrDb = 0;
     this.waveformAnalyser = null;
     this.fftAnalyser = null;
     this.repeatId = null;
@@ -81,9 +191,17 @@ class AudioEngine {
     this.waveformAnalyser = new Tone.Waveform(128);
     this.fftAnalyser = new Tone.FFT(64);
 
+    const rawCtx = Tone.getContext().rawContext;
+    this.masterPreMeter = createStereoMeter(rawCtx);
+    this.masterStereoMeter = createStereoMeter(rawCtx);
+    this.returnAStereoMeter = createStereoMeter(rawCtx);
+    this.returnBStereoMeter = createStereoMeter(rawCtx);
+
     this.masterBus.connect(this.masterGain);
     this.masterGain.connect(this.limiter);
+    Tone.connect(this.masterGain, this.masterPreMeter.input);
     this.limiter.connect(this.masterMeter);
+    Tone.connect(this.limiter, this.masterStereoMeter.input);
     this.limiter.connect(this.waveformAnalyser);
     this.limiter.connect(this.fftAnalyser);
     this.limiter.toDestination();
@@ -105,10 +223,12 @@ class AudioEngine {
     this.sendABus.connect(this.returnA.input);
     this.returnA.output.connect(this.returnAGain);
     this.returnAGain.connect(this.masterBus);
+    Tone.connect(this.returnAGain, this.returnAStereoMeter.input);
 
     this.sendBBus.connect(this.returnB.input);
     this.returnB.output.connect(this.returnBGain);
     this.returnBGain.connect(this.masterBus);
+    Tone.connect(this.returnBGain, this.returnBStereoMeter.input);
 
     // 8 Channels
     for (let i = 0; i < 8; i++) {
@@ -118,10 +238,12 @@ class AudioEngine {
       const sendAGain = new Tone.Gain(tr.sendA);
       const sendBGain = new Tone.Gain(tr.sendB);
       const meter = new Tone.Meter({ smoothing: 0.72 });
+      const stereoMeter = createStereoMeter(rawCtx);
 
       fader.connect(panner);
       panner.connect(this.masterBus);
       panner.connect(meter);
+      Tone.connect(panner, stereoMeter.input);
       fader.connect(sendAGain);
       fader.connect(sendBGain);
       sendAGain.connect(this.sendABus);
@@ -134,6 +256,7 @@ class AudioEngine {
         sendAGain,
         sendBGain,
         meter,
+        stereoMeter,
         insertNodes: []
       };
       this.channels.push(ch);
@@ -858,24 +981,46 @@ class AudioEngine {
     return this.fftAnalyser.getValue();
   }
 
+  getTrackMeterInfo(trackId) {
+    const sm = this.channels[trackId]?.stereoMeter;
+    return sm ? sm.sample() : emptyMeterInfo();
+  }
+
+  getReturnMeterInfo(returnKey) {
+    const sm = returnKey === 'sendA' ? this.returnAStereoMeter : returnKey === 'sendB' ? this.returnBStereoMeter : null;
+    return sm ? sm.sample() : emptyMeterInfo();
+  }
+
+  getMasterMeterInfo() {
+    const pre = this.masterPreMeter ? this.masterPreMeter.sample() : null;
+    const post = this.masterStereoMeter ? this.masterStereoMeter.sample() : emptyMeterInfo();
+    const rawGr = pre ? Math.max(0, pre.peakDb - post.peakDb) : 0;
+    this.smoothedGrDb = rawGr > this.smoothedGrDb ? rawGr : this.smoothedGrDb * 0.85;
+    return {
+      ...post,
+      grDb: this.smoothedGrDb
+    };
+  }
+
+  getReturnNode(returnKey) {
+    return returnKey === 'sendA' ? this.returnA : returnKey === 'sendB' ? this.returnB : null;
+  }
+
   getTrackMeter(trackId) {
-    const m = this.channels[trackId]?.meter;
-    if (!m) return 0;
-    const db = m.getValue();
-    return Math.max(0, Math.min(1, (db + 60) / 60));
+    const info = this.getTrackMeterInfo(trackId);
+    return dbToMeterNorm(info.peakDb);
   }
 
   getReturnMeters() {
     return {
-      sendA: this.returnA?.getMeter?.() || 0,
-      sendB: this.returnB?.getMeter?.() || 0
+      sendA: dbToMeterNorm(this.getReturnMeterInfo('sendA').peakDb),
+      sendB: dbToMeterNorm(this.getReturnMeterInfo('sendB').peakDb)
     };
   }
 
   getMasterMeter() {
-    if (!this.masterMeter) return 0;
-    const db = this.masterMeter.getValue();
-    return Math.max(0, Math.min(1, (db + 60) / 60));
+    const info = this.getMasterMeterInfo();
+    return dbToMeterNorm(info.peakDb);
   }
 
   getDeviceVisualizer(trackId, slotIdx) {

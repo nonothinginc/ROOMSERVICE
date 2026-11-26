@@ -1,9 +1,9 @@
 # ROOMSERVICE — Session Handover Hub
 
 **Last Updated:** 2026-11-26  
-**Latest Source Commit (`main`):** `bbd8bf9` (`Fix latency, zero default sends, per-clip swing, playlist scroll/follow/rename, segmented DSP controls, and mixer meters`)  
-**Latest Live Deploy (`gh-pages`):** `2b1b474` (`status: built`, `HTTP/2 200` at https://nonothinginc.github.io/ROOMSERVICE/)  
-**Service Worker Cache:** `roomservice-v3` ([public/sw.js](../public/sw.js))  
+**Latest Source Commit (`main`):** *(updated upon commit)*  
+**Latest Live Deploy (`gh-pages`):** *(updated upon deploy)*  
+**Service Worker Cache:** `roomservice-v4` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -29,23 +29,24 @@ Every decision below came directly from user feedback and **must not be regresse
    - Removed global `SWG` from [src/ui/header.js](../src/ui/header.js).
    - Swing (`0..80%`) lives per Pattern (`patterns[id].swing`, edited via `SWG` in `ROLL`) and per Arrangement Clip (`clip.swing`, edited inside the clip context menu in `ARR`), applied dynamically per odd 16th-note step in `engine.onStep(time)`.
 4. **Playlist / Arrangement (`ARR`) ([src/ui/views/arr.js](../src/ui/views/arr.js)):**
-   - Single-bar dock (`P01..P64`, `W01+`, `A01+`, **`FOLLOW`**, `+` modal).
+   - Single-bar dock (`P01..P64`, `W01+`, `A01+`, `✎` rename, `⋯` clip menu, **`FOLLOW`**, `+` modal).
    - Top `22px` bar ruler (tap to scrub step, horizontal drag to pan) + bottom draggable horizontal scrollbar rail (`.arr-scroll-rail`) + horizontal touch drag on empty space (quick tap paints on release; drag pans; 2-finger drag always pans).
    - `FOLLOW` toggle tracks the `SONG` playhead smoothly while playing.
-   - Tapping an existing clip opens its editor (`ROLL` / Audio / Auto); double-tapping deletes it; long-pressing opens the Clip Context Menu (**`OPEN EDITOR`**, **`RENAME CLIP`**, **`SWING`**, `WARP`, `SLICE`, `DUPLICATE`, `MAKE UNIQUE`, **`+LAB (STASH & HIDE)`**, `DELETE`).
-   - Long-pressing left lane headers (`L1`..`L8`) opens a clean custom label modal.
+   - Tapping an existing clip opens its editor (`ROLL` / Audio / Auto); double-tapping deletes it; long-pressing (`380ms`, `14px` move threshold) or tapping `⋯` opens the Clip Context Menu (**`OPEN EDITOR`**, **`RENAME CLIP`**, **`SWING`**, `WARP`, `SLICE`, `DUPLICATE`, `MAKE UNIQUE`, **`+LAB (STASH & HIDE)`**, `DELETE`).
+   - Left lane headers display unified track names (`01 MONO-303`, etc.) by default; single-tapping or long-pressing opens the unified track/lane rename modal.
 5. **LAB Vault & `.roomservice` Native ZIP Archive ([src/ui/lab.js](../src/ui/lab.js), [src/storage/project-archive.js](../src/storage/project-archive.js)):**
    - `+LAB` stashes/hides any clip (instead of losing ideas) while remembering its original `instrumentId`, `instrumentName`, `instrumentParams`, `notes`, `bpm`, and audio ref.
    - Full-screen `LAB` modal (`●` rail icon with badge dot) supports live solo waveform preview (`engine.previewLabItem`) and one-tap route to **`→ NEW CHANNEL`** or **`→ CURRENT TRACK`**.
    - Projects save/load as self-contained `.roomservice` ZIP archives (`manifest.json`, `project.json`, `lab.json`, `sessions.json`, `samples/*.wav`, `pads/*.wav`) via pure-JS uncompressed STORE ZIP + PCM WAV writer (`zip-wav.js`), alongside IndexedDB autosave and 50-slot Session Checkpoints + 200-step Undo/Redo history (`↶` hold).
-6. **Low-Latency Audio & Clean Zero-Send Mixing ([src/audio/engine.js](../src/audio/engine.js), [src/ui/views/mix.js](../src/ui/views/mix.js)):**
-   - Uses `Tone.Context({ latencyHint: 'interactive', lookAhead: 0.02, updateInterval: 0.015 })`, `Tone.immediate()` on live triggers, synchronous `previewNote()` when unlocked, and lightweight `createBufferSource()` / `createGain()` triggers in `drum8.js`.
+6. **Calibrated Metering, Channel FX Access & Clean Zero-Send Mixing ([src/audio/engine.js](../src/audio/engine.js), [src/ui/views/mix.js](../src/ui/views/mix.js)):**
+   - Uses `Tone.Context({ latencyHint: 'interactive', lookAhead: 0.02, updateInterval: 0.015 })`, `Tone.immediate()` on live triggers, synchronous `previewNote()` when unlocked, and lightweight native `BufferSource` triggers in `drum8.js`.
    - Default `sendA` and `sendB` on all 8 tracks are **`0`**.
-   - Mixer features scrollable channels + sends (`attachHeaderPan` bottom header swipe, tap/long-press bottom label to rename via `renderTrackRenameModal`) paired with a **pinned right-side `MASTER` dock** (`.mix-master-dock`), `+6 / 0 / -6 / -12 / -24 / -∞` dB scales with `0 dB` unity tick, and **upright 18-segment peak-hold bar meters** (twin L/R on Master).
-7. **Modular DSP Controls & Visualizers ([src/ui/views/dsp.js](../src/ui/views/dsp.js), [src/ui/views/mpc-editor.js](../src/ui/views/mpc-editor.js)):**
-   - Discrete params like `DRUM-8` `MODE` (`SYNTH | RACK`) & `KIT` (`909 | 808 | RAND | COMBO`, visible when `RACK` is active) and `MONO-303` `WAVE` (`SAW | SQR`) declare `control: 'segmented'` in `meta.params` and render as pill selectors rather than rotary knobs.
-   - `EQ-3`, `COMP`, `VERB`, and `DELAY` render bespoke minimalist hardware visualizers.
-   - `DRUM-8` has a full-screen MPC 4×4 pad grid (`mpc-editor.js`) with `SLICE | ZONE | MAP` tabs, needle waveform + start/end chop box, equal/transient slicing, reverse, choke groups, and custom sample pool.
+   - `createStereoMeter(rawCtx)` provides true L/R Peak, RMS, `-0.1 dBFS` clip latch, and Master Limiter Gain Reduction (`grDb`) mapped on an IEC `0 / -6 / -12 / -24 / -48 dB` curve with `1.2s` peak hold and tappable Peak/Clip reset badges (`.mix-peak-badge`).
+   - Channel strips include an `FX` rack pill (`.mix-fx-btn`) for inspecting, bypassing, deleting, or adding channel/return inserts directly from `MIX`, plus tappable bottom nameplates synced with `ARR` and `inst-menu.js`.
+7. **Modular DSP Controls, MPC Pad Modulation & `TAPE-1` LCD ([src/ui/views/dsp.js](../src/ui/views/dsp.js), [src/ui/views/mpc-editor.js](../src/ui/views/mpc-editor.js), [src/devices/tape.js](../src/devices/tape.js)):**
+   - Discrete params like `DRUM-8` `MODE`/`KIT`, `MONO-303` `WAVE`, and `TAPE-1` `IPS`/`TAPE` declare `control: 'segmented'`. Compact cards stay `<= 6` params while optional `meta.extendedParams` unlock inside full-screen hardware detail overlays.
+   - `DRUM-8` features per-pad modulation (`P.TUNE`, `P.ENV`, `ATK`, `DEC`, `LP/HP/BP CUT`, `RES`, `DRV`, `PAN`, `LVL`) in both `RACK` & `SYNTH` modes plus global bus sculpting (`PUNCH`, `GLUE`, `SUB`, `AIR`, `HPF`, `WIDTH`) in the `MOD | SLICE | MAP | GLOBAL` MPC tabs.
+   - `TAPE-1` (`src/devices/tape.js`) runs a 2x oversampled RK2 Jiles-Atherton hysteresis + modulated W/F delay `AudioWorklet` (`roomservice-tape-hysteresis`) paired with a real-time Teenage Engineering–inspired vector LCD (`drawTapeLcd`) showing twin rotating reels, magnetic head block, live `B-H` hysteresis loop, and expanded EQ/VU telemetry.
 
 ---
 

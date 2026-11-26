@@ -152,49 +152,54 @@ export function createArrView() {
     }
   }
 
-  attachLongPress(canvasWrap, (e) => {
-    if (dragClip?.moved || dragAction?.moved || activePointers.size > 1) return;
-    clearPendingTap();
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const headerW = getLaneHeaderW(rect.width);
-    const st = store.getState();
-    const lane = Math.max(0, Math.min(7, Math.floor(Math.max(0, y - RULER_H) / laneH)));
+  attachLongPress(
+    canvasWrap,
+    (e) => {
+      if (dragClip?.moved || dragAction?.moved || activePointers.size > 1) return;
+      clearPendingTap();
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const headerW = getLaneHeaderW(rect.width);
+      const st = store.getState();
+      const lane = Math.max(0, Math.min(7, Math.floor(Math.max(0, y - RULER_H) / laneH)));
 
-    longPressFired = true;
-    dragClip = null;
-    dragAction = null;
+      longPressFired = true;
+      dragClip = null;
+      dragAction = null;
 
-    if (y < RULER_H) return;
+      if (y < RULER_H) return;
 
-    if (x < headerW) {
-      st.detailOverlay = { type: 'lane-label', lane };
-      store.emit('overlay', st.detailOverlay);
-      return;
-    }
-
-    const hit = [...st.arrClips]
-      .reverse()
-      .find((c) => {
-        if (c.lane !== lane) return false;
-        const cx = headerW + (c.startStep - scrollX) * stepW;
-        const cw = Math.max(12, c.lengthSteps * stepW);
-        return x >= cx && x <= cx + cw;
-      });
-
-    if (hit) {
-      if (pendingTap && pendingTap.clipId !== hit.id) {
-        clearPendingTap();
+      if (x < headerW) {
+        st.detailOverlay = { type: 'lane-label', lane };
+        store.emit('overlay', st.detailOverlay);
+        return;
       }
-      st.selectedArrClipId = hit.id;
-      st.detailOverlay = { type: 'clip-menu', clipId: hit.id };
-      store.emit('overlay', st.detailOverlay);
-    } else {
-      st.detailOverlay = { type: 'arr' };
-      store.emit('overlay', st.detailOverlay);
-    }
-  });
+
+      const hit = [...st.arrClips]
+        .reverse()
+        .find((c) => {
+          if (c.lane !== lane) return false;
+          const cx = headerW + (c.startStep - scrollX) * stepW;
+          const cw = Math.max(12, c.lengthSteps * stepW);
+          return x >= cx && x <= cx + cw;
+        });
+
+      if (hit) {
+        if (pendingTap && pendingTap.clipId !== hit.id) {
+          clearPendingTap();
+        }
+        st.selectedArrClipId = hit.id;
+        st.detailOverlay = { type: 'clip-menu', clipId: hit.id };
+        store.emit('overlay', st.detailOverlay);
+      } else {
+        st.detailOverlay = { type: 'arr' };
+        store.emit('overlay', st.detailOverlay);
+      }
+    },
+    380,
+    14
+  );
 
   async function triggerImport() {
     await engine.unlock();
@@ -258,8 +263,9 @@ export function createArrView() {
     for (const pid of patIds) {
       const btn = document.createElement('button');
       const active = st.selectedDockClip?.kind === 'pattern' && st.selectedDockClip.refId === pid;
+      const patName = st.patterns[pid]?.name;
       btn.className = `ctx-chip ${active ? 'active' : ''}`;
-      btn.textContent = pid;
+      btn.textContent = patName && patName !== pid ? `${pid}·${patName}` : pid;
       btn.onclick = () => {
         st.selectedDockClip = { kind: 'pattern', refId: pid };
         store.setActivePattern(pid);
@@ -296,6 +302,33 @@ export function createArrView() {
     const sp = document.createElement('div');
     sp.className = 'ctx-spacer';
     dock.appendChild(sp);
+
+    const renameDockBtn = document.createElement('button');
+    renameDockBtn.className = 'ctx-chip';
+    renameDockBtn.textContent = '✎';
+    renameDockBtn.title = 'Rename Selected Clip or Pattern';
+    renameDockBtn.onclick = () => {
+      const selClip = st.arrClips.find((c) => c.id === st.selectedArrClipId);
+      if (selClip) {
+        st.detailOverlay = { type: 'clip-rename', clipId: selClip.id };
+      } else {
+        st.detailOverlay = { type: 'pattern-rename', patId: st.activePatternId };
+      }
+      store.emit('overlay', st.detailOverlay);
+    };
+    dock.appendChild(renameDockBtn);
+
+    if (st.selectedArrClipId && st.arrClips.some((c) => c.id === st.selectedArrClipId)) {
+      const clipMenuBtn = document.createElement('button');
+      clipMenuBtn.className = 'ctx-chip';
+      clipMenuBtn.textContent = '⋯';
+      clipMenuBtn.title = 'Clip Options';
+      clipMenuBtn.onclick = () => {
+        st.detailOverlay = { type: 'clip-menu', clipId: st.selectedArrClipId };
+        store.emit('overlay', st.detailOverlay);
+      };
+      dock.appendChild(clipMenuBtn);
+    }
 
     const followBtn = document.createElement('button');
     followBtn.className = `ctx-chip ${st.arrFollow ? 'active' : ''}`;
@@ -361,6 +394,12 @@ export function createArrView() {
       return;
     }
 
+    if (x < headerW && y >= RULER_H) {
+      const lane = Math.max(0, Math.min(7, Math.floor((y - RULER_H) / laneH)));
+      dragAction = { type: 'lane-tap', lane, startX: e.clientX, startY: e.clientY, moved: false };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
     if (x < headerW) return;
     const lane = Math.max(0, Math.min(7, Math.floor(Math.max(0, y - RULER_H) / laneH)));
     const step = Math.max(0, Math.min(124, Math.floor((scrollX + (x - headerW) / stepW) / 4) * 4));
@@ -424,6 +463,10 @@ export function createArrView() {
     if (dragAction) {
       const dx = e.clientX - dragAction.startX;
       const dy = e.clientY - (dragAction.startY ?? e.clientY);
+      if (dragAction.type === 'lane-tap') {
+        if (!dragAction.moved && Math.hypot(dx, dy) > 8) dragAction.moved = true;
+        return;
+      }
       if (!dragAction.moved && Math.hypot(dx, dy) > 6) {
         dragAction.moved = true;
         isUserPanning = true;
@@ -438,7 +481,7 @@ export function createArrView() {
     if (!dragClip) return;
     const dx = e.clientX - dragClip.startX;
     const dy = e.clientY - dragClip.startY;
-    if (!dragClip.moved && Math.hypot(dx, dy) <= 6) return;
+    if (!dragClip.moved && Math.hypot(dx, dy) <= 14) return;
     dragClip.moved = true;
     clearPendingTap();
     const dSteps = Math.round(dx / stepW / 4) * 4;
@@ -466,7 +509,11 @@ export function createArrView() {
     isUserPanning = false;
 
     if (finishedAction && !longPressFired) {
-      if (finishedAction.type === 'ruler' && !finishedAction.moved) {
+      if (finishedAction.type === 'lane-tap' && !finishedAction.moved) {
+        const st = store.getState();
+        st.detailOverlay = { type: 'lane-label', lane: finishedAction.lane };
+        store.emit('overlay', st.detailOverlay);
+      } else if (finishedAction.type === 'ruler' && !finishedAction.moved) {
         const st = store.getState();
         const targetStep = Math.max(0, Math.min(127, Math.round(scrollX + (finishedAction.localX - finishedAction.headerW) / stepW)));
         st.currentStep = targetStep;
@@ -646,9 +693,12 @@ export function createArrView() {
     // Lanes
     for (let l = 0; l < 8; l++) {
       const y = RULER_H + l * laneH;
-      const label = st.laneLabels?.[l] || `L${l + 1}`;
-      const isCustom = label !== `L${l + 1}`;
+      const customLane = st.laneLabels?.[l];
+      const tr = st.tracks[l];
+      const isDefaultLane = !customLane || customLane === `L${l + 1}`;
+      const label = isDefaultLane ? (tr ? `${tr.code} ${tr.name}` : `L${l + 1}`) : customLane;
       const hasClip = st.arrClips.some((c) => c.lane === l);
+      const isCustom = !isDefaultLane || Boolean(tr?.customName);
       ctx.fillStyle = surface;
       ctx.fillRect(0, y, headerW - 1, laneH - 1);
       ctx.strokeStyle = border;
@@ -659,17 +709,17 @@ export function createArrView() {
 
       // Status dot
       ctx.beginPath();
-      ctx.arc(12, y + laneH / 2, 3, 0, Math.PI * 2);
+      ctx.arc(10, y + laneH / 2, 2.5, 0, Math.PI * 2);
       ctx.fillStyle = hasClip || isCustom ? ink : inkDim;
       ctx.fill();
 
       ctx.save();
       ctx.beginPath();
-      ctx.rect(19, y, headerW - 22, laneH);
+      ctx.rect(16, y, headerW - 18, laneH);
       ctx.clip();
       ctx.fillStyle = isCustom || hasClip ? ink : inkDim;
-      ctx.font = '600 10px Geist Mono, monospace';
-      ctx.fillText(label, 21, y + laneH / 2 + 3.5);
+      ctx.font = '600 9.5px Geist Mono, monospace';
+      ctx.fillText(label, 18, y + laneH / 2 + 3.5);
       ctx.restore();
     }
 
@@ -1398,6 +1448,85 @@ export function createArrView() {
     });
   }
 
+  function renderPatternRenameModal(modalEl) {
+    const st = store.getState();
+    const patId = st.detailOverlay?.patId || st.activePatternId;
+    const pat = st.patterns[patId];
+    const close = () => {
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    };
+    if (!pat) {
+      close();
+      return;
+    }
+
+    const hdr = document.createElement('div');
+    hdr.className = 'overlay-hdr';
+    hdr.innerHTML = `<span>${patId} // PATTERN NAME</span>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ctx-chip';
+    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.onclick = close;
+    hdr.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'overlay-body';
+
+    const inputEl = document.createElement('input');
+    inputEl.type = 'text';
+    inputEl.className = 'hw-text-input';
+    inputEl.maxLength = 16;
+    inputEl.value = pat.name === patId ? '' : pat.name;
+    inputEl.placeholder = patId;
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '8px';
+    actions.style.justifyContent = 'flex-end';
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'ctx-chip';
+    resetBtn.textContent = 'RESET';
+    resetBtn.onclick = () => {
+      store.renamePattern(patId, '');
+      close();
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ctx-chip';
+    cancelBtn.textContent = 'CANCEL';
+    cancelBtn.onclick = close;
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'ctx-chip solid';
+    saveBtn.textContent = 'SAVE';
+    const commit = () => {
+      store.renamePattern(patId, inputEl.value);
+      close();
+    };
+    saveBtn.onclick = commit;
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    });
+
+    actions.append(resetBtn, cancelBtn, saveBtn);
+    body.append(inputEl, actions);
+    modalEl.append(hdr, body);
+
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      inputEl.select();
+    });
+  }
+
   return {
     el: root,
     tick,
@@ -1405,6 +1534,7 @@ export function createArrView() {
     renderDetailOverlay,
     renderLaneLabelModal,
     renderClipRenameModal,
+    renderPatternRenameModal,
     renderClipMenuModal,
     renderArrAddModal
   };

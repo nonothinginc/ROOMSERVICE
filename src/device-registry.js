@@ -15,7 +15,8 @@ for (const [path, mod] of Object.entries(modules)) {
   DEVICES[meta.id] = {
     meta: {
       ...meta,
-      params: meta.params.slice(0, 6)
+      params: meta.params.slice(0, 6),
+      extendedParams: Array.isArray(meta.extendedParams) ? meta.extendedParams : []
     },
     createNode
   };
@@ -35,7 +36,7 @@ export function getDefaultParams(id) {
   const dev = DEVICES[id];
   if (!dev) return {};
   const params = {};
-  for (const p of dev.meta.params) {
+  for (const p of [...dev.meta.params, ...(dev.meta.extendedParams || [])]) {
     params[p.id] = p.default;
   }
   return params;

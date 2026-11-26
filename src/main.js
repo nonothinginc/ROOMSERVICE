@@ -123,10 +123,31 @@ function boot() {
         overlayRoot.appendChild(modal);
         return;
       }
+      if (st.detailOverlay.type === 'pattern-rename') {
+        const modal = document.createElement('div');
+        modal.className = 'overlay-modal lane-label-modal';
+        views.ARR.renderPatternRenameModal(modal);
+        overlayRoot.appendChild(modal);
+        return;
+      }
       if (st.detailOverlay.type === 'mix-rename') {
         const modal = document.createElement('div');
         modal.className = 'overlay-modal lane-label-modal';
         views.MIX.renderTrackRenameModal(modal);
+        overlayRoot.appendChild(modal);
+        return;
+      }
+      if (st.detailOverlay.type === 'mix-fx') {
+        const modal = document.createElement('div');
+        modal.className = 'overlay-modal inst-menu-modal';
+        views.MIX.renderChannelFxModal(modal);
+        overlayRoot.appendChild(modal);
+        return;
+      }
+      if (st.detailOverlay.type === 'mix-return-fx') {
+        const modal = document.createElement('div');
+        modal.className = 'overlay-modal clip-menu-modal';
+        views.MIX.renderReturnFxModal(modal);
         overlayRoot.appendChild(modal);
         return;
       }

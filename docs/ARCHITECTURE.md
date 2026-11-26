@@ -9,23 +9,24 @@ ROOMSERVICE/
 ├── public/
 │   ├── icon.svg                 # Monochrome Nothing/Rams vector icon
 │   ├── manifest.webmanifest     # Landscape fullscreen PWA manifest (./ relative URLs)
-│   └── sw.js                    # Offline cache ('roomservice-v3') & cache fallback
+│   └── sw.js                    # Offline cache ('roomservice-v4') & cache fallback
 ├── src/
 │   ├── main.js                  # 3-zone chassis bootstrap, modal router, autosave & 120fps loop
-│   ├── device-registry.js       # import.meta.glob('./devices/*.js', { eager: true }) auto-discovery
+│   ├── device-registry.js       # import.meta.glob('./devices/*.js', { eager: true }) auto-discovery (+ extendedParams)
 │   ├── styles/main.css          # Dark/Light theme tokens, 3-zone rails, Mix/ARR/DSP/MPC/Triage styling
 │   ├── audio/
-│   │   ├── engine.js            # Tone.js v15 AudioEngine, Transport clock, LAB preview, ZIP buffer I/O
+│   │   ├── engine.js            # Tone.js v15 AudioEngine, IEC stereo Peak+RMS+GR meters, LAB preview, ZIP I/O
 │   │   ├── bpm-detector.js      # Peak & transient onset detection for imported/mic audio clips
 │   │   └── drum-kits.js         # Offline synthesized 909/808 PCM kits + custom USER sample pool
 │   ├── devices/
 │   │   ├── mono303.js           # Acid mono synth (SAW|SQR segmented + FL slide portamento)
-│   │   ├── drum8.js             # Hybrid 8-voice Synth & 16-pad Sampler Rack (SYNTH|RACK, 909|808|RAND|COMBO)
+│   │   ├── drum8.js             # Hybrid 8-voice Synth & 16-pad Sampler Rack + per-pad mod & global bus FX
 │   │   ├── grain1.js            # Granular synth + grain cloud particle visualizer
 │   │   ├── polyfm.js            # 4-voice FM poly synth
 │   │   ├── eq3.js               # 3-band EQ + interactive curve/band dot visualizer ('eq-curve')
 │   │   ├── comp.js              # Compressor + transfer curve & telemetry ('comp-curve')
 │   │   ├── drive.js             # Saturation + bitcrusher
+│   │   ├── tape.js              # Jiles-Atherton hysteresis AudioWorklet tape saturation + TE LCD ('tape-lcd')
 │   │   ├── delay.js             # Ping-pong delay + stereo tap dot matrix ('delay-grid')
 │   │   └── verb.js              # Reverb + concentric room contour visualizer ('reverb-depth')
 │   ├── input/
@@ -72,7 +73,7 @@ ROOMSERVICE/
 All `.js` files inside `/src/devices/` are automatically discovered by `src/device-registry.js` and rendered dynamically by `src/ui/views/dsp.js`:
 
 - **`meta` Object:**
-  - `{ id, name, category: 'instrument' | 'effect', visualizer, params }` (max 6 params per device).
+  - `{ id, name, category: 'instrument' | 'effect', visualizer, params, extendedParams? }` (`params` max 6 on compact DSP rack cards; optional `extendedParams` exposed in the full-screen hardware detail overlay).
   - **Continuous param (default rotary):** `{ id, label, min, max, default, step, unit, curve?: 'linear' | 'exp' }`.
   - **Discrete segmented pill param:** `{ id, label, control: 'segmented', options: [...], showWhen?: { param, equals }, min, max, default, step, unit }`.
 - **`createNode(Tone)` Return API:**

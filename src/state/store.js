@@ -37,6 +37,7 @@ function createTrack(index, name, instrumentId, extraFx = []) {
     id: index,
     code: String(index + 1).padStart(2, '0'),
     name,
+    customName: false,
     volume: 0.82,
     pan: 0,
     sendA: 0,
@@ -428,9 +429,18 @@ export const store = {
     if (laneIdx < 0 || laneIdx >= 8) return;
     const cleaned = String(rawLabel || '').trim().toUpperCase().slice(0, 12);
     const nextLabel = cleaned || `L${laneIdx + 1}`;
-    if (initialState.laneLabels[laneIdx] === nextLabel) return;
+    const track = initialState.tracks[laneIdx];
+    const defName = track ? getDevice(track.inserts?.[0]?.deviceId)?.meta.name || `CH ${track.code}` : nextLabel;
+    const nextTrackName = cleaned || defName;
+    if (initialState.laneLabels[laneIdx] === nextLabel && (!track || track.name === nextTrackName)) return;
     this.pushHistory(`LABEL L${laneIdx + 1}`);
     initialState.laneLabels[laneIdx] = nextLabel;
+    if (track) {
+      track.customName = Boolean(cleaned);
+      track.name = nextTrackName;
+      this.emit('track', laneIdx);
+      this.emit('mixer', { trackId: laneIdx });
+    }
     this.emit('arr', { action: 'lane-label', laneIdx });
   },
 
@@ -440,11 +450,27 @@ export const store = {
     const cleaned = String(rawName || '').trim().toUpperCase().slice(0, 12);
     const defName = getDevice(track.inserts?.[0]?.deviceId)?.meta.name || `CH ${track.code}`;
     const nextName = cleaned || defName;
-    if (track.name === nextName) return;
+    const nextLane = cleaned || `L${trackId + 1}`;
+    if (track.name === nextName && Boolean(cleaned) === Boolean(track.customName) && initialState.laneLabels[trackId] === nextLane) return;
     this.pushHistory(`NAME ${track.code}`);
+    track.customName = Boolean(cleaned);
     track.name = nextName;
+    initialState.laneLabels[trackId] = nextLane;
     this.emit('track', trackId);
     this.emit('mixer', { trackId });
+    this.emit('arr', { action: 'lane-label', laneIdx: trackId });
+  },
+
+  renamePattern(patId, rawName) {
+    const pat = initialState.patterns[patId];
+    if (!pat) return;
+    const cleaned = String(rawName || '').trim().toUpperCase().slice(0, 16);
+    const nextName = cleaned || patId;
+    if (pat.name === nextName) return;
+    this.pushHistory(`RENAME ${patId}`);
+    pat.name = nextName;
+    this.emit('pattern', patId);
+    this.emit('arr', { action: 'rename-pattern', patId });
   },
 
   renameClip(clipId, rawName) {
@@ -526,7 +552,8 @@ export const store = {
     if (!track || !track.inserts[slotIdx]) return;
     const slot = track.inserts[slotIdx];
     const def = getDevice(slot.deviceId);
-    const pMeta = def?.meta.params.find((p) => p.id === paramId);
+    const allParams = [...(def?.meta.params || []), ...(def?.meta.extendedParams || [])];
+    const pMeta = allParams.find((p) => p.id === paramId);
     let clamped = value;
     if (pMeta) {
       clamped = Math.max(pMeta.min, Math.min(pMeta.max, value));
@@ -558,7 +585,9 @@ export const store = {
         bypass: false,
         params: getDefaultParams(deviceId)
       };
-      track.name = def.meta.name;
+      if (!track.customName) {
+        track.name = def.meta.name;
+      }
     } else {
       track.inserts.push({
         slotId: nextId('slot'),

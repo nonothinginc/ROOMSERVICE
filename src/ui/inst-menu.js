@@ -56,12 +56,20 @@ export function renderInstMenuModal(modalEl) {
       rebuild();
     };
 
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'ctx-chip';
+    renameBtn.textContent = '✎ RENAME';
+    renameBtn.onclick = () => {
+      st.detailOverlay = { type: 'mix-rename', trackId: st.selectedTrackId };
+      store.emit('overlay', st.detailOverlay);
+    };
+
     const closeBtn = document.createElement('button');
     closeBtn.className = 'ctx-chip';
     closeBtn.textContent = 'CLOSE [B]';
     closeBtn.onclick = close;
 
-    hdrRight.append(swapBtn, addBtn, closeBtn);
+    hdrRight.append(swapBtn, addBtn, renameBtn, closeBtn);
     hdr.appendChild(hdrRight);
 
     const body = document.createElement('div');

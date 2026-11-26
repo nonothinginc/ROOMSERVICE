@@ -1,5 +1,6 @@
 import { KIT_NAMES, getSamplePool } from '../../audio/drum-kits.js';
 import { engine } from '../../audio/engine.js';
+import { getDevice } from '../../device-registry.js';
 import { store } from '../../state/store.js';
 import { createRotary } from '../components/rotary.js';
 
@@ -93,7 +94,6 @@ function drawPadWaveform(canvas, pad) {
   const sx = pad.startNorm * w;
   const ex = pad.endNorm * w;
 
-  // Crisp needle waveform (matching reference image 2/3)
   const peaks = pad.peaks;
   for (let i = 0; i < peaks.length; i++) {
     const px = (i / (peaks.length - 1)) * w;
@@ -107,7 +107,6 @@ function drawPadWaveform(canvas, pad) {
     ctx.stroke();
   }
 
-  // High-contrast selection box overlay
   ctx.save();
   ctx.globalAlpha = 0.08;
   ctx.fillStyle = ink;
@@ -118,7 +117,6 @@ function drawPadWaveform(canvas, pad) {
   ctx.lineWidth = 1.5;
   ctx.strokeRect(sx, 6, Math.max(2, ex - sx), h - 12);
 
-  // Chop corner dots
   ctx.fillStyle = accent;
   ctx.beginPath();
   ctx.arc(sx, 6, 4, 0, Math.PI * 2);
@@ -139,7 +137,7 @@ export function renderMpcEditor(panelEl, trackId) {
 
   let selectedPad = 0;
   let poolPickerOpen = false;
-  let inspectorTab = 'SLICE';
+  let inspectorTab = 'MOD';
 
   const padFileInput = document.createElement('input');
   padFileInput.type = 'file';
@@ -178,6 +176,8 @@ export function renderMpcEditor(panelEl, trackId) {
     const info = node.getPadInfo();
     const isRack = info.mode === 1;
     const pool = getSamplePool();
+    const tabs = isRack ? ['MOD', 'SLICE', 'MAP', 'GLOBAL'] : ['MOD', 'GLOBAL'];
+    if (!tabs.includes(inspectorTab)) inspectorTab = 'MOD';
 
     // Header
     const hdr = document.createElement('div');
@@ -261,7 +261,7 @@ export function renderMpcEditor(panelEl, trackId) {
     const body = document.createElement('div');
     body.className = 'overlay-body mpc-layout';
 
-    // Left: 4x4 Wireframe MPC Pad Grid (classic MPC layout: 13-16 top, 01-04 bottom)
+    // Left: 4x4 Wireframe MPC Pad Grid (13-16 top, 01-04 bottom)
     const padGrid = document.createElement('div');
     padGrid.className = 'mpc-pad-grid';
     const padEls = new Array(16);
@@ -302,7 +302,7 @@ export function renderMpcEditor(panelEl, trackId) {
       padGrid.appendChild(padBtn);
     }
 
-    // Right: Chopper + Pad Controls
+    // Right: Waveform/Viz + Tabs + Pad Modulation / Global Bus Controls
     const inspector = document.createElement('div');
     inspector.className = 'mpc-inspector';
 
@@ -310,7 +310,7 @@ export function renderMpcEditor(panelEl, trackId) {
     const chopCanvas = document.createElement('canvas');
     chopCanvas.className = 'mpc-chop-canvas';
     chopCanvas.width = 640;
-    chopCanvas.height = 180;
+    chopCanvas.height = 160;
 
     if (isRack) {
       drawPadWaveform(chopCanvas, curPad);
@@ -361,52 +361,114 @@ export function renderMpcEditor(panelEl, trackId) {
 
     inspector.appendChild(chopCanvas);
 
-    if (isRack) {
-      const segBar = document.createElement('div');
-      segBar.className = 'mpc-seg-bar';
-      ['SLICE', 'ZONE', 'MAP'].forEach((tName) => {
-        const sb = document.createElement('button');
-        sb.className = `mpc-seg-btn ${inspectorTab === tName ? 'active' : ''}`;
-        sb.textContent = tName;
-        sb.onclick = () => {
-          inspectorTab = tName;
+    // Segmented Tab Bar
+    const segBar = document.createElement('div');
+    segBar.className = 'mpc-seg-bar';
+    segBar.style.gridTemplateColumns = `repeat(${tabs.length}, 1fr)`;
+    tabs.forEach((tName) => {
+      const sb = document.createElement('button');
+      sb.className = `mpc-seg-btn ${inspectorTab === tName ? 'active' : ''}`;
+      sb.textContent = tName;
+      sb.onclick = () => {
+        inspectorTab = tName;
+        rebuild();
+      };
+      segBar.appendChild(sb);
+    });
+    inspector.appendChild(segBar);
+
+    const slotParams = tr.inserts[0].params;
+
+    if (inspectorTab === 'MOD') {
+      const modStrip = document.createElement('div');
+      modStrip.style.display = 'flex';
+      modStrip.style.flexWrap = 'wrap';
+      modStrip.style.gap = '6px';
+      modStrip.style.alignItems = 'center';
+
+      const padBadge = document.createElement('span');
+      padBadge.className = 'ctx-chip solid';
+      padBadge.textContent = `P${String(selectedPad + 1).padStart(2, '0')} ${curPad.name}`;
+      modStrip.appendChild(padBadge);
+
+      const fTypes = [
+        { id: 'lowpass', lbl: 'LP' },
+        { id: 'highpass', lbl: 'HP' },
+        { id: 'bandpass', lbl: 'BP' }
+      ];
+      for (const ft of fTypes) {
+        const fb = document.createElement('button');
+        fb.className = `ctx-chip ${(curPad.filterType || 'lowpass') === ft.id ? 'active' : ''}`;
+        fb.textContent = ft.lbl;
+        fb.onclick = () => {
+          node.updatePad(selectedPad, { filterType: ft.id });
+          engine.previewNote(trackId, 48 + selectedPad, 0.9);
           rebuild();
         };
-        segBar.appendChild(sb);
-      });
-      inspector.appendChild(segBar);
+        modStrip.appendChild(fb);
+      }
 
+      if (isRack) {
+        const revBtn = document.createElement('button');
+        revBtn.className = `ctx-chip ${curPad.reverse ? 'active' : ''}`;
+        revBtn.textContent = 'REV';
+        revBtn.onclick = () => {
+          node.updatePad(selectedPad, { reverse: !curPad.reverse });
+          engine.previewNote(trackId, 48 + selectedPad, 0.9);
+          rebuild();
+        };
+
+        const chkBtn = document.createElement('button');
+        chkBtn.className = `ctx-chip ${curPad.chokeGroup > 0 ? 'active' : ''}`;
+        chkBtn.textContent = `CHK ${curPad.chokeGroup || 'OFF'}`;
+        chkBtn.onclick = () => {
+          node.updatePad(selectedPad, { chokeGroup: (curPad.chokeGroup + 1) % 4 });
+          rebuild();
+        };
+        modStrip.append(revBtn, chkBtn);
+      }
+
+      const rstBtn = document.createElement('button');
+      rstBtn.className = 'ctx-chip';
+      rstBtn.textContent = 'RST';
+      rstBtn.onclick = () => {
+        node.resetPadMod(selectedPad);
+        engine.previewNote(trackId, 48 + selectedPad, 0.9);
+        rebuild();
+      };
+      modStrip.appendChild(rstBtn);
+      inspector.appendChild(modStrip);
+
+      const modGrid = document.createElement('div');
+      modGrid.className = 'mpc-knobs mpc-knobs-grid';
+
+      const padModParams = [
+        { id: 'tune', label: 'P.TUNE', min: -24, max: 24, default: 0, step: 0.5, unit: 'st' },
+        { id: 'pitchEnv', label: 'P.ENV', min: -24, max: 24, default: 0, step: 1, unit: 'st' },
+        { id: 'attack', label: 'ATK', min: 0, max: 120, default: 0, step: 1, unit: 'ms' },
+        { id: 'decay', label: 'DEC', min: 0.05, max: 2.0, default: 1.0, step: 0.05, unit: 'x' },
+        { id: 'cutoff', label: 'CUT', min: 120, max: 18000, default: 18000, step: 50, unit: 'Hz', curve: 'exp' },
+        { id: 'res', label: 'RES', min: 0.5, max: 14, default: 0.7, step: 0.2, unit: 'Q' },
+        { id: 'drive', label: 'DRV', min: 0, max: 100, default: 0, step: 1, unit: '%' },
+        { id: 'pan', label: 'PAN', min: -1, max: 1, default: 0, step: 0.05, unit: '' },
+        { id: 'gain', label: 'LVL', min: 0.1, max: 1.5, default: 1.0, step: 0.05, unit: 'x' }
+      ];
+
+      for (const p of padModParams) {
+        const rot = createRotary({
+          param: p,
+          value: curPad[p.id] ?? p.default,
+          size: 40,
+          onChange: (v) => node.updatePad(selectedPad, { [p.id]: v })
+        });
+        modGrid.appendChild(rot.el);
+      }
+      inspector.appendChild(modGrid);
+    } else if (inspectorTab === 'SLICE' && isRack) {
       const actionRow = document.createElement('div');
       actionRow.style.display = 'flex';
       actionRow.style.flexWrap = 'wrap';
       actionRow.style.gap = '6px';
-
-      const loadBtn = document.createElement('button');
-      loadBtn.className = 'ctx-chip solid';
-      loadBtn.textContent = 'LOAD WAV';
-      loadBtn.onclick = () => padFileInput.click();
-
-      const poolBtn = document.createElement('button');
-      poolBtn.className = `ctx-chip ${poolPickerOpen ? 'active' : ''}`;
-      poolBtn.textContent = 'POOL';
-      poolBtn.onclick = () => {
-        poolPickerOpen = !poolPickerOpen;
-        rebuild();
-      };
-
-      const rndPadBtn = document.createElement('button');
-      rndPadBtn.className = 'ctx-chip';
-      rndPadBtn.textContent = 'RND PAD';
-      rndPadBtn.onclick = () => {
-        if (pool.length === 0) return;
-        const userOnly = pool.filter((s) => s.bank === 'USER');
-        const src = userOnly.length > 0 && Math.random() < 0.7 ? userOnly : pool;
-        const pick = src[Math.floor(Math.random() * src.length)];
-        node.setPadSample(selectedPad, pick);
-        store.emit('drum-pads', { trackId });
-        engine.previewNote(trackId, 48 + selectedPad, 0.9);
-        rebuild();
-      };
 
       const ensureSliceablePad = () => {
         if (curPad.active && curPad.buffer) return true;
@@ -444,45 +506,32 @@ export function renderMpcEditor(panelEl, trackId) {
         rebuild();
       };
 
-      const revBtn = document.createElement('button');
-      revBtn.className = `ctx-chip ${curPad.reverse ? 'active' : ''}`;
-      revBtn.textContent = 'REV';
-      revBtn.onclick = () => {
-        node.updatePad(selectedPad, { reverse: !curPad.reverse });
+      const rndPadBtn = document.createElement('button');
+      rndPadBtn.className = 'ctx-chip';
+      rndPadBtn.textContent = 'RND PAD';
+      rndPadBtn.onclick = () => {
+        if (pool.length === 0) return;
+        const userOnly = pool.filter((s) => s.bank === 'USER');
+        const src = userOnly.length > 0 && Math.random() < 0.7 ? userOnly : pool;
+        const pick = src[Math.floor(Math.random() * src.length)];
+        node.setPadSample(selectedPad, pick);
+        store.emit('drum-pads', { trackId });
         engine.previewNote(trackId, 48 + selectedPad, 0.9);
         rebuild();
       };
 
-      const chkBtn = document.createElement('button');
-      chkBtn.className = `ctx-chip ${curPad.chokeGroup > 0 ? 'active' : ''}`;
-      chkBtn.textContent = `CHK ${curPad.chokeGroup || 'OFF'}`;
-      chkBtn.onclick = () => {
-        node.updatePad(selectedPad, { chokeGroup: (curPad.chokeGroup + 1) % 4 });
+      const poolBtn = document.createElement('button');
+      poolBtn.className = `ctx-chip ${poolPickerOpen ? 'active' : ''}`;
+      poolBtn.textContent = 'POOL';
+      poolBtn.onclick = () => {
+        poolPickerOpen = !poolPickerOpen;
         rebuild();
       };
 
-      const clrBtn = document.createElement('button');
-      clrBtn.className = 'ctx-chip';
-      clrBtn.textContent = 'CLR PAD';
-      clrBtn.onclick = () => {
-        node.clearPad(selectedPad);
-        store.emit('drum-pads', { trackId });
-        rebuild();
-      };
-
-      if (inspectorTab === 'SLICE') {
-        actionRow.append(slice8Btn, slice16Btn, transBtn, rndPadBtn, poolBtn);
-      } else if (inspectorTab === 'ZONE') {
-        actionRow.append(loadBtn, revBtn, chkBtn, clrBtn);
-      } else {
-        const midiPill = document.createElement('span');
-        midiPill.className = 'ctx-chip';
-        midiPill.textContent = `MIDI ${48 + selectedPad} · ${curPad.active ? curPad.bank : 'EMPTY'}`;
-        actionRow.append(midiPill, loadBtn, poolBtn, clrBtn);
-      }
+      actionRow.append(slice8Btn, slice16Btn, transBtn, rndPadBtn, poolBtn);
       inspector.appendChild(actionRow);
 
-      if (poolPickerOpen || inspectorTab === 'MAP') {
+      if (poolPickerOpen) {
         const poolBox = document.createElement('div');
         poolBox.className = 'mpc-pool-strip';
         for (const smp of pool) {
@@ -499,30 +548,13 @@ export function renderMpcEditor(panelEl, trackId) {
         }
         inspector.appendChild(poolBox);
       }
-    }
 
-    // Bottom Rotary Row
-    const knobRow = document.createElement('div');
-    knobRow.className = 'mpc-knobs';
-    const slotParams = tr.inserts[0].params;
-
-    if (isRack) {
-      const padTuneRot = createRotary({
-        param: { id: 'padTune', label: 'P.TUNE', min: -24, max: 24, default: 0, step: 0.5, unit: 'st' },
-        value: curPad.tune,
-        size: 46,
-        onChange: (v) => node.updatePad(selectedPad, { tune: v })
-      });
-      const padGainRot = createRotary({
-        param: { id: 'padGain', label: 'P.GAIN', min: 0.1, max: 1.5, default: 1.0, step: 0.05, unit: 'x' },
-        value: curPad.gain,
-        size: 46,
-        onChange: (v) => node.updatePad(selectedPad, { gain: v })
-      });
+      const knobRow = document.createElement('div');
+      knobRow.className = 'mpc-knobs';
       const startRot = createRotary({
         param: { id: 'startPct', label: 'START', min: 0, max: 95, default: 0, step: 1, unit: '%' },
         value: Math.round(curPad.startNorm * 100),
-        size: 46,
+        size: 44,
         onChange: (v) => {
           node.updatePad(selectedPad, { startNorm: Math.min(curPad.endNorm - 0.02, v / 100) });
           drawPadWaveform(chopCanvas, curPad);
@@ -531,46 +563,92 @@ export function renderMpcEditor(panelEl, trackId) {
       const endRot = createRotary({
         param: { id: 'endPct', label: 'END', min: 5, max: 100, default: 100, step: 1, unit: '%' },
         value: Math.round(curPad.endNorm * 100),
-        size: 46,
+        size: 44,
         onChange: (v) => {
           node.updatePad(selectedPad, { endNorm: Math.max(curPad.startNorm + 0.02, v / 100) });
           drawPadWaveform(chopCanvas, curPad);
         }
       });
-      const toneRot = createRotary({
-        param: { id: 'tone', label: 'TONE', min: 400, max: 14000, default: 9500, step: 50, unit: 'Hz', curve: 'exp' },
-        value: slotParams.tone,
-        size: 46,
-        onChange: (v) => store.setDeviceParam(trackId, 0, 'tone', v)
+      const padTuneRot = createRotary({
+        param: { id: 'padTune', label: 'P.TUNE', min: -24, max: 24, default: 0, step: 0.5, unit: 'st' },
+        value: curPad.tune,
+        size: 44,
+        onChange: (v) => node.updatePad(selectedPad, { tune: v })
       });
-      const drvRot = createRotary({
-        param: { id: 'drive', label: 'DRV', min: 0, max: 100, default: 18, step: 1, unit: '%' },
-        value: slotParams.drive,
-        size: 46,
-        onChange: (v) => store.setDeviceParam(trackId, 0, 'drive', v)
+      const padGainRot = createRotary({
+        param: { id: 'padGain', label: 'P.GAIN', min: 0.1, max: 1.5, default: 1.0, step: 0.05, unit: 'x' },
+        value: curPad.gain,
+        size: 44,
+        onChange: (v) => node.updatePad(selectedPad, { gain: v })
       });
-      knobRow.append(padTuneRot.el, padGainRot.el, startRot.el, endRot.el, toneRot.el, drvRot.el);
+      knobRow.append(startRot.el, endRot.el, padTuneRot.el, padGainRot.el);
+      inspector.appendChild(knobRow);
+    } else if (inspectorTab === 'MAP' && isRack) {
+      const actionRow = document.createElement('div');
+      actionRow.style.display = 'flex';
+      actionRow.style.flexWrap = 'wrap';
+      actionRow.style.gap = '6px';
+
+      const midiPill = document.createElement('span');
+      midiPill.className = 'ctx-chip';
+      midiPill.textContent = `MIDI ${48 + selectedPad} · ${curPad.active ? curPad.bank : 'EMPTY'}`;
+
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'ctx-chip solid';
+      loadBtn.textContent = 'LOAD WAV';
+      loadBtn.onclick = () => padFileInput.click();
+
+      const clrBtn = document.createElement('button');
+      clrBtn.className = 'ctx-chip';
+      clrBtn.textContent = 'CLR PAD';
+      clrBtn.onclick = () => {
+        node.clearPad(selectedPad);
+        store.emit('drum-pads', { trackId });
+        rebuild();
+      };
+
+      actionRow.append(midiPill, loadBtn, clrBtn);
+      inspector.appendChild(actionRow);
+
+      const poolBox = document.createElement('div');
+      poolBox.className = 'mpc-pool-strip';
+      for (const smp of pool) {
+        const b = document.createElement('button');
+        b.className = `ctx-chip ${curPad.sampleId === smp.id ? 'active' : ''}`;
+        b.textContent = `${smp.bank} ${smp.name}`;
+        b.onclick = () => {
+          node.setPadSample(selectedPad, smp);
+          store.emit('drum-pads', { trackId });
+          engine.previewNote(trackId, 48 + selectedPad, 0.9);
+          rebuild();
+        };
+        poolBox.appendChild(b);
+      }
+      inspector.appendChild(poolBox);
     } else {
-      const synthParams = [
-        { id: 'tune', label: 'TUNE', min: -12, max: 12, default: 0, step: 0.5, unit: 'st' },
-        { id: 'decay', label: 'DEC', min: 0.2, max: 2.0, default: 1.0, step: 0.05, unit: 'x' },
-        { id: 'tone', label: 'TONE', min: 400, max: 14000, default: 9500, step: 50, unit: 'Hz', curve: 'exp' },
-        { id: 'drive', label: 'DRV', min: 0, max: 100, default: 18, step: 1, unit: '%' }
+      // GLOBAL Drum Bus Sculpting (Both Synth & Rack)
+      const drumDef = getDevice('drum8');
+      const allGlobal = [
+        ...(drumDef?.meta.params || []).filter((p) => p.control !== 'segmented'),
+        ...(drumDef?.meta.extendedParams || [])
       ];
-      for (const p of synthParams) {
+
+      const globalGrid = document.createElement('div');
+      globalGrid.className = 'mpc-knobs mpc-knobs-grid';
+      for (const p of allGlobal) {
         const rot = createRotary({
           param: p,
-          value: slotParams[p.id],
-          size: 48,
+          value: slotParams[p.id] ?? p.default,
+          size: 40,
           onGestureStart: () => store.beginGesture(`DRUM-8 ${p.label}`),
           onGestureEnd: () => store.commitGesture(),
           onChange: (v) => store.setDeviceParam(trackId, 0, p.id, v)
         });
-        knobRow.appendChild(rot.el);
+        globalGrid.appendChild(rot.el);
       }
+      inspector.appendChild(globalGrid);
     }
 
-    inspector.appendChild(knobRow);
     body.append(padGrid, inspector, padFileInput, poolFileInput);
     panelEl.append(hdr, body);
 

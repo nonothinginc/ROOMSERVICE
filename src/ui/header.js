@@ -1,4 +1,4 @@
-import { engine } from '../audio/engine.js';
+import { dbToMeterNorm, engine } from '../audio/engine.js';
 import { store } from '../state/store.js';
 import { downloadProjectArchive, importProjectArchive, saveAutosave } from '../storage/project-archive.js';
 import { attachLongPress } from './components/longpress.js';
@@ -415,9 +415,11 @@ export function createRightRail(dotMatrix) {
       meterCanvas.height = h;
     }
 
-    const level = engine.getMasterMeter();
-    peakL = Math.max(level * 0.96, peakL * 0.9);
-    peakR = Math.max(Math.min(1, level * 1.03), peakR * 0.89);
+    const info = engine.getMasterMeterInfo();
+    const normL = dbToMeterNorm(info.peakDbL);
+    const normR = dbToMeterNorm(info.peakDbR);
+    peakL = Math.max(normL, peakL * 0.9);
+    peakR = Math.max(normR, peakR * 0.9);
 
     const style = getComputedStyle(document.documentElement);
     const ink = style.getPropertyValue('--ink').trim();
