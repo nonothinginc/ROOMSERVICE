@@ -1,9 +1,9 @@
 # ROOMSERVICE — Session Handover Hub
 
 **Last Updated:** 2026-11-26  
-**Latest Source Commit (`main`):** `cee35c6` (`Fix TAPE-1 LCD overlay ticking from Mixer, DPR canvas sizing, and Analyser fallback telemetry`)  
-**Latest Live Deploy (`gh-pages`):** `79057a2` (`status: built`, `HTTP/2 200` at https://nonothinginc.github.io/ROOMSERVICE/)  
-**Service Worker Cache:** `roomservice-v5` ([public/sw.js](../public/sw.js))  
+**Latest Source Commit (`main`):** `8a2af16` (`Add authentic 808/909 samples & VA circuit DSP, Piano Roll pinch-zoom & 4-beat/multi-bar controls, live REC overdub, log faders, pan & FX reorder`)  
+**Latest Live Deploy (`gh-pages`):** `c87a0e8` (`status: built`, `HTTP/2 200` at https://nonothinginc.github.io/ROOMSERVICE/)  
+**Service Worker Cache:** `roomservice-v6` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
 ---
@@ -66,7 +66,7 @@ Every decision below came directly from user feedback and **must not be regresse
 
 ## 3. Open Items & Immediate Next Priorities
 
-- **Pending User Review:** User is testing commit `79057a2` (`main: cee35c6`) on their phone via https://nonothinginc.github.io/ROOMSERVICE/.
+- **Pending User Review:** User is testing commit `c87a0e8` (`main: 8a2af16`) on their phone via https://nonothinginc.github.io/ROOMSERVICE/.
 - **Likely Next Follow-Ups:**
   1. Polish any mobile touch ergonomics / spacing quirks surfaced during phone testing (e.g., `MIX` pinned master width on sub-390px screens, `ARR` touch feel, or `MPC` pad editing on portrait phones).
   2. Code-split Tone.js / optional manual chunks in Vite if initial mobile load size (`564 kB` JS / `146 kB` gzip) needs trimming.
