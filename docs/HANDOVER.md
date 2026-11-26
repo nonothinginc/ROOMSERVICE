@@ -1,8 +1,8 @@
 # ROOMSERVICE — Session Handover Hub
 
 **Last Updated:** 2026-11-26  
-**Latest Source Commit (`main`):** pending commit (`Brickchord RG477V pocket chord synth`)  
-**Latest Live Deploy (`gh-pages`):** pending push (`https://nonothinginc.github.io/ROOMSERVICE/`)  
+**Latest Source Commit (`main`):** `876d687` (`Add Brickchord pocket chord synth & RG477V performance deck`)  
+**Latest Live Deploy (`gh-pages`):** `06b22b6` (`status: built`, `HTTP/2 200` at https://nonothinginc.github.io/ROOMSERVICE/)  
 **Service Worker Cache:** `roomservice-v7` ([public/sw.js](../public/sw.js))  
 **Local Dev Server:** Vite (`npm run dev -- --host` on port `5173`; local network tunnel probes closed — outbound SSH/tunnel ports `22` and `7844` are blocked on this home network, so deploy to `gh-pages` for remote phone testing).
 
@@ -69,7 +69,7 @@ Every decision below came directly from user feedback and **must not be regresse
 
 ## 3. Open Items & Immediate Next Priorities
 
-- **Pending User Review:** User is testing commit `c87a0e8` (`main: 8a2af16`) on their phone via https://nonothinginc.github.io/ROOMSERVICE/.
+- **Pending User Review:** User is testing commit `06b22b6` (`main: 876d687`) on Anbernic RG477V / mobile via https://nonothinginc.github.io/ROOMSERVICE/.
 - **Likely Next Follow-Ups:**
   1. Polish any mobile touch ergonomics / spacing quirks surfaced during phone testing (e.g., `MIX` pinned master width on sub-390px screens, `ARR` touch feel, or `MPC` pad editing on portrait phones).
   2. Code-split Tone.js / optional manual chunks in Vite if initial mobile load size (`564 kB` JS / `146 kB` gzip) needs trimming.
