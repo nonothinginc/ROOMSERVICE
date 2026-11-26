@@ -14,8 +14,8 @@ export const meta = {
   category: 'instrument',
   visualizer: 'meter',
   params: [
-    { id: 'mode', label: 'MODE', min: 0, max: 1, default: 0, step: 1, unit: '' },
-    { id: 'kit', label: 'KIT', min: 0, max: 3, default: 0, step: 1, unit: '' },
+    { id: 'mode', label: 'MODE', control: 'segmented', options: ['SYNTH', 'RACK'], min: 0, max: 1, default: 0, step: 1, unit: '' },
+    { id: 'kit', label: 'KIT', control: 'segmented', options: ['909', '808', 'RAND', 'COMBO'], showWhen: { param: 'mode', equals: 1 }, min: 0, max: 3, default: 0, step: 1, unit: '' },
     { id: 'tune', label: 'TUNE', min: -12, max: 12, default: 0, step: 0.5, unit: 'st' },
     { id: 'decay', label: 'DEC', min: 0.2, max: 2.0, default: 1.0, step: 0.05, unit: 'x' },
     { id: 'tone', label: 'TONE', min: 400, max: 14000, default: 9500, step: 50, unit: 'Hz', curve: 'exp' },
@@ -257,7 +257,7 @@ export function createNode(Tone) {
   }
 
   function voiceTime(voiceIdx, time) {
-    const now = Tone.now();
+    const now = Tone.immediate();
     const base = typeof time === 'number' ? time : now;
     const t = Math.max(base, now, lastVoiceTime[voiceIdx] + 0.001);
     lastVoiceTime[voiceIdx] = t;
@@ -299,45 +299,56 @@ export function createNode(Tone) {
     const t = voiceTime(idx, time);
 
     if (pad.chokeGroup > 0) {
-      const prevPlayer = activeChokePlayers.get(pad.chokeGroup);
-      if (prevPlayer) {
+      const prevSrc = activeChokePlayers.get(pad.chokeGroup);
+      if (prevSrc) {
         try {
-          prevPlayer.stop(t);
+          prevSrc.stop(t);
         } catch {
           // ignore
         }
       }
     }
 
-    const buf = pad.reverse ? getReversedBuffer(Tone.getContext().rawContext, pad.buffer) : pad.buffer;
+    const toneCtx = Tone.getContext();
+    const buf = pad.reverse ? getReversedBuffer(toneCtx.rawContext, pad.buffer) : pad.buffer;
     const dur = buf.duration || 0.25;
     const s = Math.max(0, Math.min(0.98, pad.reverse ? 1 - pad.endNorm : pad.startNorm));
     const e = Math.max(s + 0.01, Math.min(1, pad.reverse ? 1 - pad.startNorm : pad.endNorm));
     const offset = s * dur;
     const sliceDur = Math.max(0.015, (e - s) * dur * Math.min(2.0, state.decay));
 
-    const player = new Tone.Player(buf).connect(bus);
-    player.playbackRate = Math.pow(2, (state.tune + pad.tune) / 12);
-    player.volume.value = Tone.gainToDb(Math.max(0.02, Math.min(1.4, vel * pad.gain)));
+    const src = toneCtx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.setValueAtTime(Math.pow(2, (state.tune + pad.tune) / 12), t);
+
+    const srcGain = toneCtx.createGain();
+    srcGain.gain.setValueAtTime(Math.max(0.02, Math.min(1.4, vel * pad.gain)), t);
+
+    src.connect(srcGain);
+    Tone.connect(srcGain, bus);
+
     if (pad.chokeGroup > 0) {
-      activeChokePlayers.set(pad.chokeGroup, player);
+      activeChokePlayers.set(pad.chokeGroup, src);
     }
 
+    src.onended = () => {
+      if (pad.chokeGroup > 0 && activeChokePlayers.get(pad.chokeGroup) === src) {
+        activeChokePlayers.delete(pad.chokeGroup);
+      }
+      try {
+        src.disconnect();
+        srcGain.disconnect();
+      } catch {
+        // ignore
+      }
+    };
+
     try {
-      player.start(t, offset, sliceDur);
-      player.onstop = () => {
-        if (pad.chokeGroup > 0 && activeChokePlayers.get(pad.chokeGroup) === player) {
-          activeChokePlayers.delete(pad.chokeGroup);
-        }
-        try {
-          player.dispose();
-        } catch {
-          // ignore
-        }
-      };
+      src.start(t, offset, sliceDur);
     } catch {
       try {
-        player.dispose();
+        src.disconnect();
+        srcGain.disconnect();
       } catch {
         // ignore
       }

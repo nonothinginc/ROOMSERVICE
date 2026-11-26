@@ -39,8 +39,8 @@ function createTrack(index, name, instrumentId, extraFx = []) {
     name,
     volume: 0.82,
     pan: 0,
-    sendA: index === 1 ? 0.28 : index === 2 ? 0.32 : 0.12,
-    sendB: index === 2 ? 0.42 : index === 3 ? 0.55 : 0.14,
+    sendA: 0,
+    sendB: 0,
     mute: false,
     solo: false,
     inserts
@@ -55,6 +55,7 @@ function buildInitialPatterns() {
       id,
       name: id,
       length: 16,
+      swing: 0,
       notesByTrack: {}
     };
   }
@@ -98,6 +99,7 @@ const initialState = {
 
   selectedDockClip: { kind: 'pattern', refId: 'P01' },
   selectedArrClipId: null,
+  arrFollow: true,
   selectedDeviceSlotIdx: 0,
   selectedParamIdx: 0,
 
@@ -158,6 +160,7 @@ function clonePatterns(patterns) {
       id: pat.id,
       name: pat.name,
       length: pat.length,
+      swing: pat.swing || 0,
       notesByTrack: clonedByTrack
     };
   }
@@ -431,6 +434,63 @@ export const store = {
     this.emit('arr', { action: 'lane-label', laneIdx });
   },
 
+  renameTrack(trackId, rawName) {
+    const track = initialState.tracks[trackId];
+    if (!track) return;
+    const cleaned = String(rawName || '').trim().toUpperCase().slice(0, 12);
+    const defName = getDevice(track.inserts?.[0]?.deviceId)?.meta.name || `CH ${track.code}`;
+    const nextName = cleaned || defName;
+    if (track.name === nextName) return;
+    this.pushHistory(`NAME ${track.code}`);
+    track.name = nextName;
+    this.emit('track', trackId);
+    this.emit('mixer', { trackId });
+  },
+
+  renameClip(clipId, rawName) {
+    const clip = initialState.arrClips.find((c) => c.id === clipId);
+    if (!clip) return;
+    const cleaned = String(rawName || '').trim().toUpperCase().slice(0, 16);
+    this.pushHistory(`RENAME ${clip.refId}`);
+    if (cleaned) {
+      clip.name = cleaned;
+    } else {
+      delete clip.name;
+    }
+    if (clip.kind === 'pattern' && initialState.patterns[clip.refId]) {
+      initialState.patterns[clip.refId].name = cleaned || clip.refId;
+    } else if (clip.kind === 'audio' && initialState.audioClips[clip.refId]) {
+      initialState.audioClips[clip.refId].name = cleaned || clip.refId;
+    } else if (clip.kind === 'auto' && initialState.autoClips[clip.refId]) {
+      initialState.autoClips[clip.refId].name = cleaned || clip.refId;
+    }
+    this.emit('arr', { action: 'rename', clipId });
+    this.emit('pattern', clip.refId);
+  },
+
+  setPatternSwing(patId, swing) {
+    const pat = initialState.patterns[patId];
+    if (!pat) return;
+    const clamped = Math.max(0, Math.min(80, Math.round(swing)));
+    pat.swing = clamped;
+    this.markGestureDirty();
+    this.emit('pattern', patId);
+    this.emit('roll-ctx');
+  },
+
+  setClipSwing(clipId, swing) {
+    const clip = initialState.arrClips.find((c) => c.id === clipId);
+    if (!clip) return;
+    const clamped = Math.max(0, Math.min(80, Math.round(swing)));
+    clip.swing = clamped;
+    if (clip.kind === 'pattern' && initialState.patterns[clip.refId]) {
+      initialState.patterns[clip.refId].swing = clamped;
+    }
+    this.markGestureDirty();
+    this.emit('arr', { action: 'swing', clipId });
+    this.emit('roll-ctx');
+  },
+
   setActivePattern(patId) {
     if (!initialState.patterns[patId]) return;
     initialState.activePatternId = patId;
@@ -556,6 +616,7 @@ export const store = {
         id: nextPatId,
         name: nextPatId,
         length: src.length,
+        swing: src.swing || 0,
         notesByTrack: clonedByTrack
       };
       clip.refId = nextPatId;
@@ -624,7 +685,11 @@ export const store = {
     const st = initialState;
     for (let i = 1; i <= 64; i++) {
       const id = `P${String(i).padStart(2, '0')}`;
-      st.patterns[id] = { id, name: id, length: 16, notesByTrack: {} };
+      st.patterns[id] = { id, name: id, length: 16, swing: 0, notesByTrack: {} };
+    }
+    for (const tr of st.tracks) {
+      tr.sendA = 0;
+      tr.sendB = 0;
     }
     st.arrClips = [];
     st.autoClips = {};

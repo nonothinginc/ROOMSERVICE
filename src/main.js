@@ -116,6 +116,20 @@ function boot() {
         overlayRoot.appendChild(modal);
         return;
       }
+      if (st.detailOverlay.type === 'clip-rename') {
+        const modal = document.createElement('div');
+        modal.className = 'overlay-modal lane-label-modal';
+        views.ARR.renderClipRenameModal(modal);
+        overlayRoot.appendChild(modal);
+        return;
+      }
+      if (st.detailOverlay.type === 'mix-rename') {
+        const modal = document.createElement('div');
+        modal.className = 'overlay-modal lane-label-modal';
+        views.MIX.renderTrackRenameModal(modal);
+        overlayRoot.appendChild(modal);
+        return;
+      }
       if (st.detailOverlay.type === 'clip-menu') {
         const modal = document.createElement('div');
         modal.className = 'overlay-modal clip-menu-modal';

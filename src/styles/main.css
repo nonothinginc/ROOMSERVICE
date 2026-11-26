@@ -524,7 +524,65 @@ body {
   color: var(--ink);
 }
 
+/* Playlist Horizontal Rail */
+.arr-scroll-rail {
+  height: 12px;
+  width: 100%;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  position: relative;
+  flex-shrink: 0;
+  touch-action: none;
+  cursor: pointer;
+}
+
+.arr-scroll-thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  border-radius: 3px;
+  background: var(--border-strong);
+  transition: background 0.12s;
+}
+
+.arr-scroll-rail.active .arr-scroll-thumb {
+  background: var(--accent);
+}
+
 /* Mixer */
+.mix-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.mix-main-col {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.mix-master-dock {
+  flex: 0 0 116px;
+  min-width: 116px;
+  border-left: 1px solid var(--border-strong);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+}
+
+.mix-master-dock .mix-strip {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  border-right: none;
+}
+
 .mix-grid {
   flex: 1;
   min-height: 0;
@@ -548,20 +606,16 @@ body {
 }
 
 .mix-strip {
-  flex: 1 0 104px;
-  min-width: 104px;
+  flex: 1 0 98px;
+  min-width: 98px;
+  min-height: 0;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 8px 4px;
-  gap: 6px;
+  padding: 6px 4px;
+  gap: 5px;
   position: relative;
-}
-
-.mix-strip.is-master {
-  flex: 1.15 0 112px;
-  min-width: 112px;
 }
 
 .mix-strip:last-child {
@@ -587,11 +641,12 @@ body {
 
 .mix-hdr {
   width: 100%;
+  flex-shrink: 0;
   text-align: center;
   border-top: 1px solid var(--border);
-  padding: 7px 4px 2px;
+  padding: 5px 4px 2px;
   touch-action: none;
-  cursor: grab;
+  cursor: pointer;
 }
 
 .mix-grid.is-panning .mix-hdr {
@@ -641,17 +696,30 @@ body {
 
 .mix-fader-area {
   flex: 1;
-  min-height: 0;
+  min-height: 82px;
   width: 100%;
   display: flex;
   align-items: stretch;
   justify-content: center;
-  gap: 8px;
-  padding: 4px 0;
+  gap: 4px;
+  padding: 2px 0;
+  overflow: hidden;
+}
+
+.fader-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding: 5px 1px;
+  font-size: 7.5px;
+  line-height: 1;
+  color: var(--ink-dim);
+  pointer-events: none;
 }
 
 .fader-track {
-  width: 24px;
+  width: 22px;
   height: 100%;
   border: none;
   background: transparent;
@@ -672,11 +740,21 @@ body {
   background: var(--border-strong);
 }
 
+.fader-unity-tick {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 18.2%;
+  height: 1px;
+  background: var(--border-strong);
+  pointer-events: none;
+}
+
 .fader-cap {
   position: absolute;
-  left: 3px;
-  right: 3px;
-  height: 16px;
+  left: 2px;
+  right: 2px;
+  height: 15px;
   border-radius: var(--radius-sm);
   background: var(--ink);
   border: 1px solid var(--bg);
@@ -696,15 +774,20 @@ body {
 }
 
 .meter-canvas {
-  width: 10px;
+  width: 14px;
   height: 100%;
   border: none;
+}
+
+.meter-canvas.is-stereo {
+  width: 24px;
 }
 
 .mix-db {
   font-size: 9px;
   font-weight: 600;
   color: var(--ink-dim);
+  flex-shrink: 0;
 }
 
 .mix-ms {
@@ -712,6 +795,7 @@ body {
   gap: 4px;
   width: 100%;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .ms-btn {
@@ -847,6 +931,59 @@ body {
   align-content: center;
   justify-items: center;
   gap: 8px 4px;
+}
+
+.dsp-knobs.cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.dsp-seg-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.dsp-seg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dsp-seg-lbl {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  letter-spacing: 0.08em;
+  min-width: 28px;
+}
+
+.dsp-seg-bar {
+  flex: 1;
+  display: grid;
+  gap: 3px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+  border: 1px solid var(--border);
+}
+
+.dsp-seg-btn {
+  height: 20px;
+  border-radius: 3px;
+  border: none;
+  background: transparent;
+  color: var(--ink-dim);
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.dsp-seg-btn.active {
+  background: var(--ink);
+  color: var(--bg);
 }
 
 .dsp-card-footer {

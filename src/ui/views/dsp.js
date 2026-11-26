@@ -506,11 +506,54 @@ export function createDspView() {
 
       attachLongPress(vizWrap, openDetail);
 
+      const segWrap = document.createElement('div');
+      segWrap.className = 'dsp-seg-group';
+
+      const segParams = def.meta.params.filter((p) => p.control === 'segmented' && Array.isArray(p.options));
+      const rotaryParams = def.meta.params.filter((p) => !(p.control === 'segmented' && Array.isArray(p.options)));
+
+      for (const p of segParams) {
+        if (p.showWhen && Math.round(slot.params[p.showWhen.param] ?? 0) !== p.showWhen.equals) {
+          continue;
+        }
+        const row = document.createElement('div');
+        row.className = 'dsp-seg-row';
+        const lbl = document.createElement('span');
+        lbl.className = 'dsp-seg-lbl';
+        lbl.textContent = p.label;
+
+        const bar = document.createElement('div');
+        bar.className = 'dsp-seg-bar';
+        bar.style.gridTemplateColumns = `repeat(${p.options.length}, 1fr)`;
+
+        const curIdx = Math.round(slot.params[p.id] ?? p.default ?? 0);
+        p.options.forEach((optLabel, optIdx) => {
+          const btn = document.createElement('button');
+          btn.className = `dsp-seg-btn ${curIdx === optIdx ? 'active' : ''}`;
+          btn.textContent = optLabel;
+          btn.onclick = (e) => {
+            e.stopPropagation();
+            engine.unlock();
+            store.pushHistory(`${def.meta.name} ${optLabel}`);
+            store.setDeviceParam(tr.id, slotIdx, p.id, optIdx);
+            if (slot.deviceId === 'drum8' && p.id === 'kit' && optIdx >= 2) {
+              engine.getDrumNode(tr.id)?.rerollKit?.();
+              store.emit('drum-pads', { trackId: tr.id });
+            }
+            render();
+          };
+          bar.appendChild(btn);
+        });
+
+        row.append(lbl, bar);
+        segWrap.appendChild(row);
+      }
+
       const knobs = document.createElement('div');
-      knobs.className = 'dsp-knobs';
+      knobs.className = `dsp-knobs ${rotaryParams.length === 4 ? 'cols-2' : ''}`;
       const slotRotaries = [];
 
-      def.meta.params.forEach((p, pIdx) => {
+      rotaryParams.forEach((p, pIdx) => {
         const rot = createRotary({
           param: p,
           value: slot.params[p.id],
@@ -556,7 +599,11 @@ export function createDspView() {
       }
 
       rotaryRefs[slotIdx] = slotRotaries;
-      card.append(hdr, vizWrap, knobs, footer);
+      if (segWrap.childElementCount > 0) {
+        card.append(hdr, vizWrap, segWrap, knobs, footer);
+      } else {
+        card.append(hdr, vizWrap, knobs, footer);
+      }
       chainScroll.appendChild(card);
     });
 
@@ -745,13 +792,56 @@ export function createDspView() {
     overlayVizCanvas.style.border = '1px solid var(--border)';
     overlaySlotInfo = { trackId, slotIdx };
 
+    const segParams = def.meta.params.filter((p) => p.control === 'segmented' && Array.isArray(p.options));
+    const rotaryParams = def.meta.params.filter((p) => !(p.control === 'segmented' && Array.isArray(p.options)));
+
+    if (segParams.length > 0) {
+      const segWrap = document.createElement('div');
+      segWrap.className = 'dsp-seg-group';
+      for (const p of segParams) {
+        if (p.showWhen && Math.round(slot.params[p.showWhen.param] ?? 0) !== p.showWhen.equals) {
+          continue;
+        }
+        const row = document.createElement('div');
+        row.className = 'dsp-seg-row';
+        const lbl = document.createElement('span');
+        lbl.className = 'dsp-seg-lbl';
+        lbl.textContent = p.label;
+        const bar = document.createElement('div');
+        bar.className = 'dsp-seg-bar';
+        bar.style.gridTemplateColumns = `repeat(${p.options.length}, 1fr)`;
+        const curIdx = Math.round(slot.params[p.id] ?? p.default ?? 0);
+        p.options.forEach((optLabel, optIdx) => {
+          const btn = document.createElement('button');
+          btn.className = `dsp-seg-btn ${curIdx === optIdx ? 'active' : ''}`;
+          btn.textContent = optLabel;
+          btn.onclick = () => {
+            store.pushHistory(`${def.meta.name} ${optLabel}`);
+            store.setDeviceParam(trackId, slotIdx, p.id, optIdx);
+            if (slot.deviceId === 'drum8' && p.id === 'kit' && optIdx >= 2) {
+              engine.getDrumNode(trackId)?.rerollKit?.();
+              store.emit('drum-pads', { trackId });
+            }
+            panelEl.innerHTML = '';
+            renderDetailOverlay(panelEl);
+          };
+          bar.appendChild(btn);
+        });
+        row.append(lbl, bar);
+        segWrap.appendChild(row);
+      }
+      body.append(overlayVizCanvas, segWrap);
+    } else {
+      body.append(overlayVizCanvas);
+    }
+
     const knobsRow = document.createElement('div');
     knobsRow.style.display = 'flex';
     knobsRow.style.justifyContent = 'space-around';
     knobsRow.style.padding = '16px 0';
     knobsRow.style.border = '1px solid var(--border)';
 
-    def.meta.params.forEach((p) => {
+    rotaryParams.forEach((p) => {
       const rot = createRotary({
         param: p,
         value: slot.params[p.id],
@@ -761,7 +851,7 @@ export function createDspView() {
       knobsRow.appendChild(rot.el);
     });
 
-    body.append(overlayVizCanvas, knobsRow);
+    body.append(knobsRow);
     panelEl.append(hdr, body);
   }
 

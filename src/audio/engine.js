@@ -56,10 +56,22 @@ class AudioEngine {
     if (this.initialized) return;
     this.initialized = true;
 
+    try {
+      Tone.setContext(new Tone.Context({ latencyHint: 'interactive', lookAhead: 0.02, updateInterval: 0.015 }));
+    } catch {
+      try {
+        const curCtx = Tone.getContext();
+        curCtx.lookAhead = 0.02;
+        curCtx.updateInterval = 0.015;
+      } catch {
+        // ignore if unsupported
+      }
+    }
+
     const state = store.getState();
     const transport = Tone.getTransport();
     transport.bpm.value = state.bpm;
-    transport.swing = state.swing / 100;
+    transport.swing = 0;
     transport.swingSubdivision = '16n';
 
     this.masterBus = new Tone.Gain(1);
@@ -160,7 +172,7 @@ class AudioEngine {
     const st = store.getState();
     const transport = Tone.getTransport();
     transport.bpm.value = st.bpm;
-    transport.swing = st.swing / 100;
+    transport.swing = 0;
 
     for (let i = 0; i < 8; i++) {
       const ch = this.channels[i];
@@ -530,9 +542,8 @@ class AudioEngine {
 
   setSwing(swing) {
     const clamped = Math.max(0, Math.min(80, Math.round(swing)));
-    store.getState().swing = clamped;
-    Tone.getTransport().swing = clamped / 100;
-    store.emit('transport', { swing: clamped });
+    const st = store.getState();
+    store.setPatternSwing(st.activePatternId, clamped);
   }
 
   async togglePlay() {
@@ -544,12 +555,12 @@ class AudioEngine {
       transport.stop();
       this.stopAllAudioClips();
       for (const ch of this.channels) {
-        ch.insertNodes[0]?.node.releaseAll?.(Tone.now());
+        ch.insertNodes[0]?.node.releaseAll?.(Tone.immediate());
       }
       st.isPlaying = false;
     } else {
       st.currentStep = 0;
-      transport.start('+0.02');
+      transport.start('+0.005');
       st.isPlaying = true;
     }
     store.emit('transport', { isPlaying: st.isPlaying });
@@ -570,17 +581,23 @@ class AudioEngine {
   }
 
   previewNote(trackId, midi, vel = 0.85, slide = false) {
-    this.unlock().then(() => {
+    const fire = () => {
       const ch = this.channels[trackId];
       const inst = ch?.insertNodes[0]?.node;
       if (!inst) return;
+      const t = Tone.immediate();
       if (slide && inst.triggerSlide) {
-        inst.triggerSlide(this.lastActiveMidiByTrack[trackId], midi, 0.18, Tone.now(), vel, {});
+        inst.triggerSlide(this.lastActiveMidiByTrack[trackId], midi, 0.18, t, vel, {});
       } else {
-        inst.triggerNote?.(midi, 0.18, Tone.now(), vel, {});
+        inst.triggerNote?.(midi, 0.18, t, vel, {});
       }
       this.lastActiveMidiByTrack[trackId] = midi;
-    });
+    };
+    if (store.getState().audioUnlocked) {
+      fire();
+    } else {
+      this.unlock().then(fire);
+    }
   }
 
   onStep(time) {
@@ -592,11 +609,13 @@ class AudioEngine {
       const pat = st.patterns[st.activePatternId];
       const patLen = pat ? pat.length : 16;
       const localStep = step % patLen;
+      const patSwing = pat?.swing || 0;
+      const swungTime = localStep % 2 === 1 ? time + (patSwing / 100) * (stepDur * 0.5) : time;
 
       if (pat) {
         for (const [tidStr, notes] of Object.entries(pat.notesByTrack)) {
           const tid = Number(tidStr);
-          this.triggerNotesAtStep(tid, notes, localStep, stepDur, time);
+          this.triggerNotesAtStep(tid, notes, localStep, stepDur, swungTime);
         }
       }
       st.currentStep = (step + 1) % patLen;
@@ -611,9 +630,11 @@ class AudioEngine {
           const pat = st.patterns[clip.refId];
           if (!pat) continue;
           const localStep = (songStep - clip.startStep) % pat.length;
+          const clipSwing = clip.swing ?? pat.swing ?? 0;
+          const swungTime = localStep % 2 === 1 ? time + (clipSwing / 100) * (stepDur * 0.5) : time;
           for (const [tidStr, notes] of Object.entries(pat.notesByTrack)) {
             const tid = clip.trackOverride != null ? clip.trackOverride : Number(tidStr);
-            this.triggerNotesAtStep(tid, notes, localStep, stepDur, time);
+            this.triggerNotesAtStep(tid, notes, localStep, stepDur, swungTime);
           }
         } else if (clip.kind === 'audio') {
           const audioClip = st.audioClips[clip.refId];

@@ -9,35 +9,68 @@ function gainToDbText(gain) {
   return `${db >= 0 ? '+' : ''}${db.toFixed(1)}`;
 }
 
-function drawDotMeter(canvas, level) {
+function drawSegmentedMeter(canvas, levelL, levelR = null, peakHold = { l: 0, r: 0 }) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width;
   const h = canvas.height;
   const styles = getComputedStyle(document.documentElement);
-  const bg = styles.getPropertyValue('--bg').trim();
-  const ledOff = styles.getPropertyValue('--led-off').trim();
-  const ledOn = styles.getPropertyValue('--led-on').trim();
+  const bg = styles.getPropertyValue('--surface-recessed').trim() || styles.getPropertyValue('--bg').trim();
+  const offCol = styles.getPropertyValue('--border').trim();
+  const ink = styles.getPropertyValue('--ink').trim();
   const accent = styles.getPropertyValue('--accent').trim();
 
+  ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
+  ctx.beginPath();
+  ctx.roundRect(0, 0, w, h, 3);
+  ctx.fill();
 
-  const dots = 16;
-  const stepH = h / dots;
-  for (let i = 0; i < dots; i++) {
-    const norm = (i + 1) / dots;
-    const y = h - (i + 0.5) * stepH;
-    const on = level >= norm * 0.92;
-    ctx.beginPath();
-    ctx.arc(w / 2, y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = on ? (norm > 0.8 ? accent : ledOn) : ledOff;
-    ctx.fill();
+  const segs = 18;
+  const padY = 4;
+  const padX = 2;
+  const slotH = (h - padY * 2) / segs;
+  const barH = Math.max(2, slotH - 2);
+  const isStereo = levelR !== null;
+
+  peakHold.l = Math.max(levelL, peakHold.l * 0.965);
+  if (isStereo) {
+    peakHold.r = Math.max(levelR, peakHold.r * 0.965);
+  }
+
+  const drawCol = (x, colW, val, holdVal) => {
+    const activeCount = Math.round(Math.max(0, Math.min(1, val)) * segs);
+    const holdIdx = holdVal > 0.04 ? Math.min(segs - 1, Math.floor(Math.min(1, holdVal) * segs)) : -1;
+    for (let i = 0; i < segs; i++) {
+      const y = h - padY - (i + 1) * slotH + 1;
+      const isHot = i >= segs - 4;
+      const isLit = i < activeCount || i === holdIdx;
+      ctx.fillStyle = isLit ? (isHot ? accent : ink) : offCol;
+      ctx.beginPath();
+      ctx.roundRect(x, y, colW, barH, 1.5);
+      ctx.fill();
+    }
+  };
+
+  if (isStereo) {
+    const gap = 3;
+    const colW = Math.max(4, Math.floor((w - padX * 2 - gap) / 2));
+    drawCol(padX, colW, levelL, peakHold.l);
+    drawCol(padX + colW + gap, colW, levelR, peakHold.r);
+  } else {
+    const colW = Math.max(4, w - padX * 2);
+    drawCol(padX, colW, levelL, peakHold.l);
   }
 }
 
 export function createMixView() {
   const root = document.createElement('div');
   root.className = 'view-root';
+
+  const shell = document.createElement('div');
+  shell.className = 'mix-shell';
+
+  const mainCol = document.createElement('div');
+  mainCol.className = 'mix-main-col';
 
   const grid = document.createElement('div');
   grid.className = 'mix-grid';
@@ -48,9 +81,16 @@ export function createMixView() {
   scrollThumb.className = 'mix-scroll-thumb';
   scrollRail.appendChild(scrollThumb);
 
-  root.append(grid, scrollRail);
+  mainCol.append(grid, scrollRail);
+
+  const masterDock = document.createElement('div');
+  masterDock.className = 'mix-master-dock';
+
+  shell.append(mainCol, masterDock);
+  root.appendChild(shell);
 
   const stripRefs = [];
+  const meterPeaks = Array.from({ length: 11 }, () => ({ l: 0, r: 0 }));
   let returnARef = null;
   let returnBRef = null;
   let masterRef = null;
@@ -84,7 +124,7 @@ export function createMixView() {
     }
   }
 
-  function attachHeaderPan(hdrEl) {
+  function attachHeaderPan(hdrEl, onTap) {
     let panning = false;
     let moved = false;
     let startX = 0;
@@ -109,7 +149,7 @@ export function createMixView() {
     hdrEl.addEventListener('pointermove', (e) => {
       if (!panning) return;
       const dx = e.clientX - startX;
-      if (!moved && Math.abs(dx) > 4) {
+      if (!moved && Math.abs(dx) > 5) {
         moved = true;
         grid.classList.add('is-panning');
         scrollRail.classList.add('active');
@@ -130,6 +170,10 @@ export function createMixView() {
       panning = false;
       grid.classList.remove('is-panning');
       scrollRail.classList.remove('active');
+      if (!moved && onTap) {
+        onTap();
+        return;
+      }
       if (moved && Math.abs(vx) > 0.08) {
         let vel = vx * 16;
         const stepGlide = () => {
@@ -188,7 +232,7 @@ export function createMixView() {
     });
   }
 
-  function buildStrip({ code, name, isChannel, trackId }) {
+  function buildStrip({ code, name, isChannel, trackId, isMaster = false }) {
     const el = document.createElement('div');
     el.className = 'mix-strip';
 
@@ -204,11 +248,20 @@ export function createMixView() {
       el.addEventListener('pointerdown', () => {
         store.setSelectedTrack(trackId);
       });
+      attachHeaderPan(hdr, () => {
+        store.getState().detailOverlay = { type: 'mix-rename', trackId };
+        store.emit('overlay', store.getState().detailOverlay);
+      });
+    } else if (!isMaster) {
+      attachHeaderPan(hdr, null);
     }
 
-    attachHeaderPan(hdr);
     attachLongPress(hdr, () => {
-      store.getState().detailOverlay = { type: 'mix', trackId: isChannel ? trackId : null };
+      if (isChannel) {
+        store.getState().detailOverlay = { type: 'mix-rename', trackId };
+      } else {
+        store.getState().detailOverlay = { type: 'mix', trackId: null };
+      }
       store.emit('overlay', store.getState().detailOverlay);
     });
 
@@ -221,18 +274,18 @@ export function createMixView() {
     if (isChannel) {
       const tr = store.getState().tracks[trackId];
       sendARot = createRotary({
-        param: { id: 'sendA', label: 'A', min: 0, max: 1, default: 0.12, step: 0.02, unit: '' },
+        param: { id: 'sendA', label: 'A', min: 0, max: 1, default: 0, step: 0.02, unit: '' },
         value: tr.sendA,
-        size: 32,
+        size: 30,
         compact: true,
         onGestureStart: () => store.beginGesture(`${tr.code} SND A`),
         onGestureEnd: () => store.commitGesture(),
         onChange: (v) => store.setTrackParam(trackId, 'sendA', v)
       });
       sendBRot = createRotary({
-        param: { id: 'sendB', label: 'B', min: 0, max: 1, default: 0.14, step: 0.02, unit: '' },
+        param: { id: 'sendB', label: 'B', min: 0, max: 1, default: 0, step: 0.02, unit: '' },
         value: tr.sendB,
-        size: 32,
+        size: 30,
         compact: true,
         onGestureStart: () => store.beginGesture(`${tr.code} SND B`),
         onGestureEnd: () => store.commitGesture(),
@@ -246,7 +299,7 @@ export function createMixView() {
       extraRot = createRotary({
         param: { id: pId, label: key === 'sendA' ? 'FDBK' : 'DEC', min: 0.1, max: 0.94, default: ret.params[pId], step: 0.02, unit: '' },
         value: ret.params[pId],
-        size: 36,
+        size: 34,
         compact: true,
         onGestureStart: () => store.beginGesture(`${code} ${pId.toUpperCase()}`),
         onGestureEnd: () => store.commitGesture(),
@@ -257,7 +310,7 @@ export function createMixView() {
       extraRot = createRotary({
         param: { id: 'ceil', label: 'LIM', min: -12, max: 0, default: -0.5, step: 0.5, unit: 'dB' },
         value: store.getState().master.limiterCeiling,
-        size: 36,
+        size: 34,
         compact: true,
         onGestureStart: () => store.beginGesture('LIM CEIL'),
         onGestureEnd: () => store.commitGesture(),
@@ -308,24 +361,35 @@ export function createMixView() {
     } else {
       const tag = document.createElement('span');
       tag.className = 'mix-code';
-      tag.textContent = 'LIM';
+      tag.textContent = '0 dB LIM';
       ms.appendChild(tag);
     }
     el.appendChild(ms);
 
     const faderArea = document.createElement('div');
     faderArea.className = 'mix-fader-area';
+
+    const scaleCol = document.createElement('div');
+    scaleCol.className = 'fader-scale';
+    ['+6', '0', '-6', '-12', '-24', '-∞'].forEach((mark) => {
+      const s = document.createElement('span');
+      s.textContent = mark;
+      scaleCol.appendChild(s);
+    });
+
     const faderTrack = document.createElement('div');
     faderTrack.className = 'fader-track';
+    const faderUnity = document.createElement('div');
+    faderUnity.className = 'fader-unity-tick';
     const faderCap = document.createElement('div');
     faderCap.className = 'fader-cap';
-    faderTrack.appendChild(faderCap);
+    faderTrack.append(faderUnity, faderCap);
 
     const meterCanvas = document.createElement('canvas');
-    meterCanvas.className = 'meter-canvas';
-    meterCanvas.width = 24;
-    meterCanvas.height = 300;
-    faderArea.append(faderTrack, meterCanvas);
+    meterCanvas.className = `meter-canvas ${isMaster ? 'is-stereo' : ''}`;
+    meterCanvas.width = isMaster ? 26 : 16;
+    meterCanvas.height = 240;
+    faderArea.append(scaleCol, faderTrack, meterCanvas);
     el.appendChild(faderArea);
 
     const dbEl = document.createElement('div');
@@ -391,7 +455,7 @@ export function createMixView() {
   );
   grid.appendChild(returnBRef.el);
 
-  masterRef = buildStrip({ code: 'MST', name: 'MASTER', isChannel: false });
+  masterRef = buildStrip({ code: 'MST', name: 'MASTER', isChannel: false, isMaster: true });
   masterRef.el.classList.add('is-master');
   attachFader(
     masterRef.faderTrack,
@@ -402,7 +466,7 @@ export function createMixView() {
       sync();
     }
   );
-  grid.appendChild(masterRef.el);
+  masterDock.appendChild(masterRef.el);
 
   function updateCap(ref, vol) {
     const pct = Math.max(0, Math.min(1, vol / 1.15));
@@ -478,12 +542,92 @@ export function createMixView() {
   function tick() {
     updateScrollRail();
     for (let i = 0; i < 8; i++) {
-      drawDotMeter(stripRefs[i].meterCanvas, engine.getTrackMeter(i));
+      drawSegmentedMeter(stripRefs[i].meterCanvas, engine.getTrackMeter(i), null, meterPeaks[i]);
     }
     const retM = engine.getReturnMeters();
-    drawDotMeter(returnARef.meterCanvas, retM.sendA);
-    drawDotMeter(returnBRef.meterCanvas, retM.sendB);
-    drawDotMeter(masterRef.meterCanvas, engine.getMasterMeter());
+    drawSegmentedMeter(returnARef.meterCanvas, retM.sendA, null, meterPeaks[8]);
+    drawSegmentedMeter(returnBRef.meterCanvas, retM.sendB, null, meterPeaks[9]);
+    const mstLevel = engine.getMasterMeter();
+    drawSegmentedMeter(masterRef.meterCanvas, mstLevel, Math.min(1, mstLevel * 0.96), meterPeaks[10]);
+  }
+
+  function renderTrackRenameModal(modalEl) {
+    const st = store.getState();
+    const tid = st.detailOverlay?.trackId ?? st.selectedTrackId;
+    const tr = st.tracks[tid];
+    const close = () => {
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    };
+    if (!tr) {
+      close();
+      return;
+    }
+
+    const hdr = document.createElement('div');
+    hdr.className = 'overlay-hdr';
+    hdr.innerHTML = `<span>CH ${tr.code} // TRACK LABEL</span>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ctx-chip';
+    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.onclick = close;
+    hdr.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'overlay-body';
+
+    const inputEl = document.createElement('input');
+    inputEl.type = 'text';
+    inputEl.className = 'hw-text-input';
+    inputEl.maxLength = 12;
+    inputEl.value = tr.name;
+    inputEl.placeholder = `CH ${tr.code}`;
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '8px';
+    actions.style.justifyContent = 'flex-end';
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'ctx-chip';
+    resetBtn.textContent = 'RESET';
+    resetBtn.onclick = () => {
+      store.renameTrack(tid, '');
+      close();
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ctx-chip';
+    cancelBtn.textContent = 'CANCEL';
+    cancelBtn.onclick = close;
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'ctx-chip solid';
+    saveBtn.textContent = 'SAVE';
+    const commit = () => {
+      store.renameTrack(tid, inputEl.value);
+      close();
+    };
+    saveBtn.onclick = commit;
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    });
+
+    actions.append(resetBtn, cancelBtn, saveBtn);
+    body.append(inputEl, actions);
+    modalEl.append(hdr, body);
+
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      inputEl.select();
+    });
   }
 
   function renderDetailOverlay(panelEl) {
@@ -526,6 +670,7 @@ export function createMixView() {
     el: root,
     tick,
     handleAction,
-    renderDetailOverlay
+    renderDetailOverlay,
+    renderTrackRenameModal
   };
 }

@@ -20,6 +20,13 @@ export function createArrView() {
   canvasWrap.appendChild(canvas);
   const ctx = canvas.getContext('2d');
 
+  // Horizontal Scrollbar Rail
+  const scrollRail = document.createElement('div');
+  scrollRail.className = 'arr-scroll-rail';
+  const scrollThumb = document.createElement('div');
+  scrollThumb.className = 'arr-scroll-thumb';
+  scrollRail.appendChild(scrollThumb);
+
   // Hidden file input fallback
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
@@ -33,20 +40,74 @@ export function createArrView() {
     fileInput.value = '';
   };
 
-  root.append(dock, canvasWrap, fileInput);
+  root.append(dock, canvasWrap, scrollRail, fileInput);
 
   let scrollX = 0;
-  let stepW = 9;
+  let stepW = 12;
   let laneH = 44;
   let cursorLane = 0;
   let cursorStep = 0;
   let micRecording = false;
   let dragClip = null;
+  let dragAction = null; // 'pan' | 'ruler' | 'empty-tap' | 'pinch-pan'
+  let isUserPanning = false;
   let longPressFired = false;
   let pendingTap = null;
+  const activePointers = new Map();
 
-  const LANE_HEADER_W = 116;
+  const RULER_H = 22;
   const DOUBLE_TAP_MS = 260;
+
+  function getLaneHeaderW(w) {
+    return w < 520 ? 74 : 112;
+  }
+
+  function getMaxScrollX(w) {
+    const headerW = getLaneHeaderW(w);
+    const visSteps = Math.max(8, (w - headerW) / Math.max(4, stepW));
+    return Math.max(0, 128 - visSteps);
+  }
+
+  function updateArrScrollRail(w) {
+    const headerW = getLaneHeaderW(w);
+    const visSteps = Math.max(8, (w - headerW) / Math.max(4, stepW));
+    const maxS = Math.max(0, 128 - visSteps);
+    if (maxS <= 0.5) {
+      scrollThumb.style.width = '100%';
+      scrollThumb.style.left = '0%';
+      return;
+    }
+    scrollX = Math.max(0, Math.min(maxS, scrollX));
+    const thumbPct = Math.max(12, Math.min(100, (visSteps / 128) * 100));
+    const leftPct = (scrollX / maxS) * (100 - thumbPct);
+    scrollThumb.style.width = `${thumbPct}%`;
+    scrollThumb.style.left = `${leftPct}%`;
+  }
+
+  let railDrag = null;
+  scrollRail.addEventListener('pointerdown', (e) => {
+    const rect = scrollRail.getBoundingClientRect();
+    const w = canvasWrap.clientWidth || rect.width;
+    const maxS = getMaxScrollX(w);
+    isUserPanning = true;
+    scrollRail.classList.add('active');
+    const norm = Math.max(0, Math.min(1, (e.clientX - rect.left) / Math.max(1, rect.width)));
+    scrollX = norm * maxS;
+    railDrag = { startX: e.clientX, startScroll: scrollX, maxS, railW: Math.max(1, rect.width) };
+    scrollRail.setPointerCapture(e.pointerId);
+  });
+  scrollRail.addEventListener('pointermove', (e) => {
+    if (!railDrag) return;
+    const dx = e.clientX - railDrag.startX;
+    scrollX = Math.max(0, Math.min(railDrag.maxS, railDrag.startScroll + (dx / railDrag.railW) * 128));
+  });
+  const endRailDrag = () => {
+    railDrag = null;
+    isUserPanning = false;
+    scrollRail.classList.remove('active');
+  };
+  scrollRail.addEventListener('pointerup', endRailDrag);
+  scrollRail.addEventListener('pointercancel', endRailDrag);
 
   function clearPendingTap() {
     if (pendingTap) {
@@ -92,18 +153,22 @@ export function createArrView() {
   }
 
   attachLongPress(canvasWrap, (e) => {
-    if (dragClip?.moved) return;
+    if (dragClip?.moved || dragAction?.moved || activePointers.size > 1) return;
     clearPendingTap();
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const headerW = getLaneHeaderW(rect.width);
     const st = store.getState();
-    const lane = Math.max(0, Math.min(7, Math.floor(y / laneH)));
+    const lane = Math.max(0, Math.min(7, Math.floor(Math.max(0, y - RULER_H) / laneH)));
 
     longPressFired = true;
     dragClip = null;
+    dragAction = null;
 
-    if (x < LANE_HEADER_W) {
+    if (y < RULER_H) return;
+
+    if (x < headerW) {
       st.detailOverlay = { type: 'lane-label', lane };
       store.emit('overlay', st.detailOverlay);
       return;
@@ -113,7 +178,7 @@ export function createArrView() {
       .reverse()
       .find((c) => {
         if (c.lane !== lane) return false;
-        const cx = LANE_HEADER_W + (c.startStep - scrollX) * stepW;
+        const cx = headerW + (c.startStep - scrollX) * stepW;
         const cw = Math.max(12, c.lengthSteps * stepW);
         return x >= cx && x <= cx + cw;
       });
@@ -232,6 +297,16 @@ export function createArrView() {
     sp.className = 'ctx-spacer';
     dock.appendChild(sp);
 
+    const followBtn = document.createElement('button');
+    followBtn.className = `ctx-chip ${st.arrFollow ? 'active' : ''}`;
+    followBtn.textContent = 'FOLLOW';
+    followBtn.title = 'Follow Playhead';
+    followBtn.onclick = () => {
+      st.arrFollow = !st.arrFollow;
+      followBtn.classList.toggle('active', st.arrFollow);
+    };
+    dock.appendChild(followBtn);
+
     const addBtn = document.createElement('button');
     addBtn.className = `ctx-chip solid ${micRecording ? 'active' : ''}`;
     addBtn.textContent = micRecording ? '■ STOP MIC' : '+';
@@ -263,15 +338,32 @@ export function createArrView() {
 
   canvas.addEventListener('pointerdown', (e) => {
     engine.unlock();
+    activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     longPressFired = false;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const headerW = getLaneHeaderW(rect.width);
     const st = store.getState();
 
-    if (x < LANE_HEADER_W) return;
-    const lane = Math.max(0, Math.min(7, Math.floor(y / laneH)));
-    const step = Math.max(0, Math.floor((scrollX + (x - LANE_HEADER_W) / stepW) / 4) * 4);
+    // Multi-finger pan
+    if (activePointers.size >= 2) {
+      dragClip = null;
+      isUserPanning = true;
+      dragAction = { type: 'pan', startX: e.clientX, startScroll: scrollX, moved: true, w: rect.width };
+      return;
+    }
+
+    // Top Ruler tap/drag -> pan or scrub playhead
+    if (y < RULER_H && x >= headerW) {
+      dragAction = { type: 'ruler', startX: e.clientX, startScroll: scrollX, moved: false, localX: x, headerW, w: rect.width };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    if (x < headerW) return;
+    const lane = Math.max(0, Math.min(7, Math.floor(Math.max(0, y - RULER_H) / laneH)));
+    const step = Math.max(0, Math.min(124, Math.floor((scrollX + (x - headerW) / stepW) / 4) * 4));
     cursorLane = lane;
     cursorStep = step;
 
@@ -279,7 +371,7 @@ export function createArrView() {
       .reverse()
       .find((c) => {
         if (c.lane !== lane) return false;
-        const cx = LANE_HEADER_W + (c.startStep - scrollX) * stepW;
+        const cx = headerW + (c.startStep - scrollX) * stepW;
         const cw = Math.max(12, c.lengthSteps * stepW);
         return x >= cx && x <= cx + cw;
       });
@@ -289,7 +381,7 @@ export function createArrView() {
         clearPendingTap();
       }
       st.selectedArrClipId = hit.id;
-      const cx = LANE_HEADER_W + (hit.startStep - scrollX) * stepW;
+      const cx = headerW + (hit.startStep - scrollX) * stepW;
       const cw = Math.max(12, hit.lengthSteps * stepW);
       const isResize = x >= cx + cw - 12;
       store.beginGesture(`EDIT ${hit.refId}`);
@@ -309,46 +401,40 @@ export function createArrView() {
       return;
     }
 
-    // Paint selected dock clip
+    // Empty timeline: drag pans horizontally, quick tap paints dock clip on pointerup
     clearPendingTap();
-    const dockClip = st.selectedDockClip || { kind: 'pattern', refId: st.activePatternId };
-    const defaultLen =
-      dockClip.kind === 'pattern'
-        ? st.patterns[dockClip.refId]?.length || 16
-        : dockClip.kind === 'audio'
-        ? Math.max(16, Math.round((st.audioClips[dockClip.refId]?.duration || 2) * (st.bpm / 60) * 4))
-        : 32;
-
-    store.beginGesture(`PAINT ${dockClip.refId}`);
-    store.markGestureDirty();
-
-    const created = {
-      id: nextId('clip'),
-      kind: dockClip.kind,
-      refId: dockClip.refId,
-      lane,
-      startStep: step,
-      lengthSteps: defaultLen,
-      trackOverride: null
-    };
-    st.arrClips.push(created);
-    st.selectedArrClipId = created.id;
-    dragClip = {
-      clip: created,
-      isNew: true,
-      moved: false,
-      mode: 'move',
+    dragAction = {
+      type: 'empty',
       startX: e.clientX,
       startY: e.clientY,
-      origStart: step,
-      origLane: lane,
-      origLen: defaultLen
+      startScroll: scrollX,
+      moved: false,
+      lane,
+      step,
+      w: rect.width
     };
     canvas.setPointerCapture(e.pointerId);
-    renderBars();
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (activePointers.has(e.pointerId)) {
+      activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (dragAction) {
+      const dx = e.clientX - dragAction.startX;
+      const dy = e.clientY - (dragAction.startY ?? e.clientY);
+      if (!dragAction.moved && Math.hypot(dx, dy) > 6) {
+        dragAction.moved = true;
+        isUserPanning = true;
+      }
+      if (dragAction.moved) {
+        const maxS = getMaxScrollX(dragAction.w);
+        scrollX = Math.max(0, Math.min(maxS, dragAction.startScroll - dx / Math.max(4, stepW)));
+      }
+      return;
+    }
+
     if (!dragClip) return;
     const dx = e.clientX - dragClip.startX;
     const dy = e.clientY - dragClip.startY;
@@ -373,7 +459,45 @@ export function createArrView() {
     }
   });
 
-  canvas.addEventListener('pointerup', () => {
+  canvas.addEventListener('pointerup', (e) => {
+    activePointers.delete(e.pointerId);
+    const finishedAction = dragAction;
+    dragAction = null;
+    isUserPanning = false;
+
+    if (finishedAction && !longPressFired) {
+      if (finishedAction.type === 'ruler' && !finishedAction.moved) {
+        const st = store.getState();
+        const targetStep = Math.max(0, Math.min(127, Math.round(scrollX + (finishedAction.localX - finishedAction.headerW) / stepW)));
+        st.currentStep = targetStep;
+        store.emit('step', targetStep);
+      } else if (finishedAction.type === 'empty' && !finishedAction.moved) {
+        const st = store.getState();
+        const dockClip = st.selectedDockClip || { kind: 'pattern', refId: st.activePatternId };
+        const defaultLen =
+          dockClip.kind === 'pattern'
+            ? st.patterns[dockClip.refId]?.length || 16
+            : dockClip.kind === 'audio'
+            ? Math.max(16, Math.round((st.audioClips[dockClip.refId]?.duration || 2) * (st.bpm / 60) * 4))
+            : 32;
+        store.pushHistory(`PAINT ${dockClip.refId}`);
+        const created = {
+          id: nextId('clip'),
+          kind: dockClip.kind,
+          refId: dockClip.refId,
+          lane: finishedAction.lane,
+          startStep: finishedAction.step,
+          lengthSteps: defaultLen,
+          trackOverride: null
+        };
+        st.arrClips.push(created);
+        st.selectedArrClipId = created.id;
+        renderBars();
+      }
+      longPressFired = false;
+      return;
+    }
+
     const finished = dragClip;
     dragClip = null;
     store.commitGesture();
@@ -395,9 +519,12 @@ export function createArrView() {
     longPressFired = false;
   });
 
-  canvas.addEventListener('pointercancel', () => {
+  canvas.addEventListener('pointercancel', (e) => {
+    activePointers.delete(e.pointerId);
     store.commitGesture();
     dragClip = null;
+    dragAction = null;
+    isUserPanning = false;
     longPressFired = false;
   });
 
@@ -405,7 +532,9 @@ export function createArrView() {
     'wheel',
     (e) => {
       e.preventDefault();
-      scrollX = Math.max(0, Math.min(96, scrollX + e.deltaX / stepW));
+      const maxS = getMaxScrollX(canvasWrap.clientWidth || 640);
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      scrollX = Math.max(0, Math.min(maxS, scrollX + delta / Math.max(4, stepW)));
     },
     { passive: false }
   );
@@ -482,22 +611,46 @@ export function createArrView() {
     const gridSub = styles.getPropertyValue('--grid-sub').trim();
     const gridBeat = styles.getPropertyValue('--grid-beat').trim();
 
-    laneH = Math.max(36, Math.floor(h / 8));
-    stepW = Math.max(6, (w - LANE_HEADER_W) / 128);
+    const headerW = getLaneHeaderW(w);
+    laneH = Math.max(32, Math.floor((h - RULER_H) / 8));
+    stepW = Math.max(7, (w - headerW) / (w < 680 ? 48 : 80));
+
+    const visSteps = Math.max(8, (w - headerW) / stepW);
+    const maxS = Math.max(0, 128 - visSteps);
+    const playStep = st.playMode === 'SONG' ? st.currentStep % 128 : 0;
+
+    if (st.isPlaying && st.playMode === 'SONG' && st.arrFollow && !isUserPanning && !dragClip) {
+      if (playStep < scrollX + visSteps * 0.12) {
+        scrollX = Math.max(0, playStep - visSteps * 0.15);
+      } else if (playStep > scrollX + visSteps * 0.85) {
+        scrollX = Math.min(maxS, playStep - visSteps * 0.35);
+      }
+    }
+    scrollX = Math.max(0, Math.min(maxS, scrollX));
+    updateArrScrollRail(w);
 
     ctx.save();
     ctx.scale(dpr, dpr);
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
 
+    // Top bar ruler
+    ctx.fillStyle = surface;
+    ctx.fillRect(0, 0, w, RULER_H);
+    ctx.strokeStyle = border;
+    ctx.beginPath();
+    ctx.moveTo(0, RULER_H + 0.5);
+    ctx.lineTo(w, RULER_H + 0.5);
+    ctx.stroke();
+
     // Lanes
     for (let l = 0; l < 8; l++) {
-      const y = l * laneH;
+      const y = RULER_H + l * laneH;
       const label = st.laneLabels?.[l] || `L${l + 1}`;
       const isCustom = label !== `L${l + 1}`;
       const hasClip = st.arrClips.some((c) => c.lane === l);
       ctx.fillStyle = surface;
-      ctx.fillRect(0, y, LANE_HEADER_W - 1, laneH - 1);
+      ctx.fillRect(0, y, headerW - 1, laneH - 1);
       ctx.strokeStyle = border;
       ctx.beginPath();
       ctx.moveTo(0, y + laneH + 0.5);
@@ -506,63 +659,81 @@ export function createArrView() {
 
       // Status dot
       ctx.beginPath();
-      ctx.arc(14, y + laneH / 2, 3, 0, Math.PI * 2);
+      ctx.arc(12, y + laneH / 2, 3, 0, Math.PI * 2);
       ctx.fillStyle = hasClip || isCustom ? ink : inkDim;
       ctx.fill();
 
       ctx.save();
       ctx.beginPath();
-      ctx.rect(22, y, LANE_HEADER_W - 26, laneH);
+      ctx.rect(19, y, headerW - 22, laneH);
       ctx.clip();
       ctx.fillStyle = isCustom || hasClip ? ink : inkDim;
       ctx.font = '600 10px Geist Mono, monospace';
-      ctx.fillText(label, 24, y + laneH / 2 + 3.5);
+      ctx.fillText(label, 21, y + laneH / 2 + 3.5);
       ctx.restore();
     }
 
     ctx.strokeStyle = border;
     ctx.beginPath();
-    ctx.moveTo(LANE_HEADER_W - 0.5, 0);
-    ctx.lineTo(LANE_HEADER_W - 0.5, h);
+    ctx.moveTo(headerW - 0.5, 0);
+    ctx.lineTo(headerW - 0.5, h);
     ctx.stroke();
 
     // Bar markers (every 16 steps = 1 bar)
     for (let s = 0; s <= 128; s += 4) {
-      const x = Math.round(LANE_HEADER_W + (s - scrollX) * stepW) + 0.5;
-      if (x < LANE_HEADER_W || x > w) continue;
+      const x = Math.round(headerW + (s - scrollX) * stepW) + 0.5;
+      if (x < headerW || x > w) continue;
       ctx.strokeStyle = s % 16 === 0 ? gridBeat : gridSub;
       ctx.beginPath();
-      ctx.moveTo(x, 0);
+      ctx.moveTo(x, s % 16 === 0 ? 4 : RULER_H);
       ctx.lineTo(x, h);
       ctx.stroke();
       if (s % 16 === 0 && s < 128) {
         ctx.fillStyle = inkDim;
         ctx.font = '600 9px Geist Mono, monospace';
-        ctx.fillText(`B${s / 16 + 1}`, x + 3, 10);
+        ctx.fillText(`B${s / 16 + 1}`, x + 4, 14);
       }
     }
 
     // Clips
     for (const clip of st.arrClips) {
-      const x = LANE_HEADER_W + (clip.startStep - scrollX) * stepW;
+      const x = headerW + (clip.startStep - scrollX) * stepW;
       const cw = Math.max(12, clip.lengthSteps * stepW - 2);
-      const y = clip.lane * laneH + 4;
+      if (x + cw < headerW || x > w) continue;
+      const drawX = Math.max(headerW, x);
+      const drawW = Math.max(4, x + cw - drawX);
+      const y = RULER_H + clip.lane * laneH + 4;
       const ch = laneH - 8;
       const isSel = st.selectedArrClipId === clip.id;
 
       ctx.fillStyle = surfaceElev;
       ctx.beginPath();
-      ctx.roundRect(x, y, cw, ch, 5);
+      ctx.roundRect(drawX, y, drawW, ch, 5);
       ctx.fill();
       ctx.strokeStyle = isSel ? accent : borderStrong;
       ctx.lineWidth = isSel ? 1.5 : 1;
       ctx.beginPath();
-      ctx.roundRect(x + 0.5, y + 0.5, cw, ch, 5);
+      ctx.roundRect(drawX + 0.5, y + 0.5, drawW, ch, 5);
       ctx.stroke();
 
+      const clipLabel =
+        clip.name ||
+        (clip.kind === 'pattern'
+          ? st.patterns[clip.refId]?.name
+          : clip.kind === 'audio'
+          ? st.audioClips[clip.refId]?.name
+          : st.autoClips[clip.refId]?.name) ||
+        clip.refId;
+      const clipSwing = clip.kind === 'pattern' ? (clip.swing ?? st.patterns[clip.refId]?.swing ?? 0) : 0;
+      const fullTag = clipSwing > 0 ? `${clipLabel} ·${clipSwing}%` : clipLabel;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(drawX + 3, y + 1, Math.max(0, drawW - 6), ch - 2);
+      ctx.clip();
       ctx.fillStyle = isSel ? accent : ink;
       ctx.font = '600 10px Geist Mono, monospace';
-      ctx.fillText(clip.refId, x + 6, y + 12);
+      ctx.fillText(fullTag, drawX + 6, y + 12);
 
       if (clip.kind === 'pattern') {
         const pat = st.patterns[clip.refId];
@@ -601,31 +772,35 @@ export function createArrView() {
           ctx.stroke();
         }
       }
+      ctx.restore();
     }
 
     // D-Pad cursor
-    const curX = LANE_HEADER_W + (cursorStep - scrollX) * stepW;
-    const curY = cursorLane * laneH;
-    ctx.strokeStyle = borderStrong;
-    ctx.strokeRect(curX + 0.5, curY + 0.5, stepW * 4, laneH);
+    const curX = headerW + (cursorStep - scrollX) * stepW;
+    const curY = RULER_H + cursorLane * laneH;
+    if (curX >= headerW && curX < w) {
+      ctx.strokeStyle = borderStrong;
+      ctx.strokeRect(curX + 0.5, curY + 0.5, stepW * 4, laneH);
+    }
 
     // Song playhead
-    const playStep = st.playMode === 'SONG' ? st.currentStep % 128 : 0;
-    const px = LANE_HEADER_W + (playStep - scrollX) * stepW;
-    ctx.strokeStyle = accent;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(px, 0);
-    ctx.lineTo(px, h);
-    ctx.stroke();
+    const px = headerW + (playStep - scrollX) * stepW;
+    if (px >= headerW && px <= w) {
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, h);
+      ctx.stroke();
 
-    ctx.fillStyle = accent;
-    ctx.beginPath();
-    ctx.moveTo(px - 4, 0);
-    ctx.lineTo(px + 4, 0);
-    ctx.lineTo(px, 6);
-    ctx.closePath();
-    ctx.fill();
+      ctx.fillStyle = accent;
+      ctx.beginPath();
+      ctx.moveTo(px - 4.5, 0);
+      ctx.lineTo(px + 4.5, 0);
+      ctx.lineTo(px, 7);
+      ctx.closePath();
+      ctx.fill();
+    }
 
     ctx.restore();
   }
@@ -970,6 +1145,35 @@ export function createArrView() {
       })
     );
 
+    list.appendChild(
+      makeBtn('RENAME CLIP', () => {
+        st.detailOverlay = { type: 'clip-rename', clipId: clip.id };
+        store.emit('overlay', st.detailOverlay);
+      })
+    );
+
+    if (clip.kind === 'pattern') {
+      const curSwing = clip.swing ?? st.patterns[clip.refId]?.swing ?? 0;
+      const swingRow = document.createElement('div');
+      swingRow.className = 'rand-row';
+      const valSpan = document.createElement('span');
+      valSpan.textContent = `${curSwing}%`;
+      swingRow.innerHTML = `<span>SWING</span>`;
+      const rangeInp = document.createElement('input');
+      rangeInp.type = 'range';
+      rangeInp.className = 'rand-range';
+      rangeInp.min = '0';
+      rangeInp.max = '80';
+      rangeInp.value = String(curSwing);
+      rangeInp.oninput = () => {
+        const v = Number(rangeInp.value);
+        valSpan.textContent = `${v}%`;
+        store.setClipSwing(clip.id, v);
+      };
+      swingRow.append(rangeInp, valSpan);
+      list.appendChild(swingRow);
+    }
+
     if (clip.kind === 'audio') {
       const ac = st.audioClips[clip.refId];
       if (ac) {
@@ -1111,12 +1315,96 @@ export function createArrView() {
     modalEl.append(hdr, body);
   }
 
+  function renderClipRenameModal(modalEl) {
+    const st = store.getState();
+    const clip = st.arrClips.find((c) => c.id === st.detailOverlay?.clipId);
+    const close = () => {
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    };
+    if (!clip) {
+      close();
+      return;
+    }
+
+    const curName =
+      clip.name ||
+      (clip.kind === 'pattern' ? st.patterns[clip.refId]?.name : clip.kind === 'audio' ? st.audioClips[clip.refId]?.name : st.autoClips[clip.refId]?.name) ||
+      clip.refId;
+
+    const hdr = document.createElement('div');
+    hdr.className = 'overlay-hdr';
+    hdr.innerHTML = `<span>${clip.refId} // RENAME</span>`;
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ctx-chip';
+    closeBtn.textContent = 'CLOSE [B]';
+    closeBtn.onclick = close;
+    hdr.appendChild(closeBtn);
+
+    const body = document.createElement('div');
+    body.className = 'overlay-body';
+
+    const inputEl = document.createElement('input');
+    inputEl.type = 'text';
+    inputEl.className = 'hw-text-input';
+    inputEl.maxLength = 16;
+    inputEl.value = curName === clip.refId ? '' : curName;
+    inputEl.placeholder = clip.refId;
+
+    const actions = document.createElement('div');
+    actions.style.display = 'flex';
+    actions.style.gap = '8px';
+    actions.style.justifyContent = 'flex-end';
+
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'ctx-chip';
+    resetBtn.textContent = 'RESET';
+    resetBtn.onclick = () => {
+      store.renameClip(clip.id, '');
+      close();
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'ctx-chip';
+    cancelBtn.textContent = 'CANCEL';
+    cancelBtn.onclick = close;
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'ctx-chip solid';
+    saveBtn.textContent = 'SAVE';
+    const commit = () => {
+      store.renameClip(clip.id, inputEl.value);
+      close();
+    };
+    saveBtn.onclick = commit;
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+      }
+    });
+
+    actions.append(resetBtn, cancelBtn, saveBtn);
+    body.append(inputEl, actions);
+    modalEl.append(hdr, body);
+
+    requestAnimationFrame(() => {
+      inputEl.focus();
+      inputEl.select();
+    });
+  }
+
   return {
     el: root,
     tick,
     handleAction,
     renderDetailOverlay,
     renderLaneLabelModal,
+    renderClipRenameModal,
     renderClipMenuModal,
     renderArrAddModal
   };

@@ -77,7 +77,7 @@ export function createNode(Tone) {
   }));
 
   function monotonic(time) {
-    const now = Tone.now();
+    const now = Tone.immediate();
     const base = typeof time === 'number' ? time : now;
     const t = Math.max(base, now, lastTime + 0.0005);
     lastTime = t;

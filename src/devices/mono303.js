@@ -4,7 +4,7 @@ export const meta = {
   category: 'instrument',
   visualizer: 'waveform',
   params: [
-    { id: 'wave', label: 'WAVE', min: 0, max: 1, default: 0, step: 1, unit: '' },
+    { id: 'wave', label: 'WAVE', control: 'segmented', options: ['SAW', 'SQR'], min: 0, max: 1, default: 0, step: 1, unit: '' },
     { id: 'cutoff', label: 'CUT', min: 80, max: 8000, default: 920, step: 1, unit: 'Hz', curve: 'exp' },
     { id: 'res', label: 'RES', min: 0.5, max: 18, default: 6.5, step: 0.1, unit: 'Q' },
     { id: 'envMod', label: 'ENV', min: 0, max: 5000, default: 2100, step: 10, unit: 'Hz' },
@@ -54,7 +54,7 @@ export function createNode(Tone) {
   }
 
   function monotonicTime(time) {
-    const now = Tone.now();
+    const now = Tone.immediate();
     const base = typeof time === 'number' ? time : now;
     const t = Math.max(base, now, lastTriggerTime + 0.0005);
     lastTriggerTime = t;

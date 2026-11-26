@@ -514,12 +514,7 @@ export function createHeader() {
   bpmBox.innerHTML = `<span class="lbl">BPM</span><span class="val">132</span>`;
   attachVerticalDrag(bpmBox, 'BPM', () => store.getState().bpm, (v) => engine.setBpm(v));
 
-  const swgBox = document.createElement('div');
-  swgBox.className = 'hdr-num';
-  swgBox.innerHTML = `<span class="lbl">SWG</span><span class="val">12%</span>`;
-  attachVerticalDrag(swgBox, 'SWING', () => store.getState().swing, (v) => engine.setSwing(v));
-
-  center.append(stopBtn, playBtn, recBtn, bpmBox, swgBox);
+  center.append(stopBtn, playBtn, recBtn, bpmBox);
 
   // Right
   const right = document.createElement('div');
@@ -559,7 +554,6 @@ export function createHeader() {
     modeBtn.textContent = st.playMode;
     modeBtn.classList.toggle('active', st.playMode === 'SONG');
     bpmBox.querySelector('.val').textContent = String(st.bpm);
-    swgBox.querySelector('.val').textContent = `${st.swing}%`;
     patBadge.textContent = st.activePatternId;
   }
 

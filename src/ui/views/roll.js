@@ -73,6 +73,33 @@ export function createRollView() {
     store.emit('randomizer', st.randomizerOpen);
   };
 
+  const patSwingChip = document.createElement('div');
+  patSwingChip.className = 'hdr-num';
+  patSwingChip.innerHTML = `<span class="lbl">SWG</span><span class="val">0%</span>`;
+  patSwingChip.title = 'Drag up/down for Pattern Swing';
+  let swgDrag = null;
+  patSwingChip.addEventListener('pointerdown', (e) => {
+    engine.unlock();
+    const st = store.getState();
+    const pat = st.patterns[st.activePatternId];
+    swgDrag = { startY: e.clientY, startVal: pat?.swing || 0, pid: st.activePatternId };
+    store.beginGesture(`${st.activePatternId} SWING`);
+    patSwingChip.setPointerCapture(e.pointerId);
+  });
+  patSwingChip.addEventListener('pointermove', (e) => {
+    if (!swgDrag) return;
+    const dy = Math.round((swgDrag.startY - e.clientY) / 3);
+    store.setPatternSwing(swgDrag.pid, swgDrag.startVal + dy);
+  });
+  const endSwgDrag = () => {
+    if (swgDrag) {
+      swgDrag = null;
+      store.commitGesture();
+    }
+  };
+  patSwingChip.addEventListener('pointerup', endSwgDrag);
+  patSwingChip.addEventListener('pointercancel', endSwgDrag);
+
   const menuChip = document.createElement('button');
   menuChip.className = 'ctx-chip';
   menuChip.textContent = '⋯';
@@ -87,6 +114,7 @@ export function createRollView() {
     mpcChip,
     scaleChip,
     Object.assign(document.createElement('div'), { className: 'ctx-spacer' }),
+    patSwingChip,
     laneChip,
     rndChip,
     menuChip
@@ -540,6 +568,9 @@ export function createRollView() {
 
     scaleChip.textContent = `${ROOT_NOTES[st.scaleRoot]} ${st.scaleId}`;
     scaleChip.classList.toggle('active', st.scaleLock);
+    const patSwingVal = st.patterns[st.activePatternId]?.swing || 0;
+    patSwingChip.querySelector('.val').textContent = `${patSwingVal}%`;
+    patSwingChip.classList.toggle('active', patSwingVal > 0);
     laneChip.textContent = st.rollLaneOpen ? `LANE: ${st.rollLane}` : 'LANE';
     laneChip.classList.toggle('active', st.rollLaneOpen);
     laneStrip.style.display = st.rollLaneOpen ? 'flex' : 'none';
