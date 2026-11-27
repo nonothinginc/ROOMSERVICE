@@ -308,7 +308,12 @@ function boot() {
   // Dev-only handle for automated UI/audio tests (tools/*.mjs); stripped from production builds
   if (import.meta.env.DEV) window.__rs = { engine, store, getSongEnd };
 
-  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  // Inside the APK assets are local files: a service worker would only risk stale code after updates
+  const inApp = Boolean(window.Capacitor?.isNativePlatform?.());
+  if (inApp && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
+  }
+  if (import.meta.env.PROD && !inApp && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 }

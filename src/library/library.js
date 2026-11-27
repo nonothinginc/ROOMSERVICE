@@ -16,6 +16,7 @@ import { listZipEntries } from './zip-read.js';
 const AUDIO_EXT = /\.(wav|wave|aif|aiff|mp3|ogg|oga|flac|m4a)$/i;
 const JUNK = /(^|\/)(__MACOSX|\.DS_Store|\._)/;
 const CACHE_BUDGET_BYTES = 96 * 1024 * 1024;
+const FAV_KEY = 'roomservice_lib_favs_v1';
 
 const listeners = new Set();
 const bufferCache = new Map(); // id -> { buffer, bytes }
@@ -72,34 +73,38 @@ export const library = {
     }
     libraryState.ready = true;
     emit();
-    if (import.meta.env.DEV) this.seedLocalPacks();
+    await this.loadBundled();
   },
 
   /**
-   * Local builds only: ZIPs in ./local-packs (served by the dev server, never deployed)
-   * are imported once, automatically, as built-in packs.
+   * Built-in packs (local/APK builds only): packs/index.json is produced on the Mac by
+   * tools/build-packs.mjs with every sample pre-analysed. Metadata loads instantly; audio is
+   * fetched from the bundled files on demand, so nothing is copied into IndexedDB.
    */
-  async seedLocalPacks() {
+  async loadBundled() {
+    let index = null;
     try {
-      const res = await fetch('./local-packs/index.json', { cache: 'no-store' });
-      if (!res.ok) return;
-      const { packs = [] } = await res.json();
-      const missing = packs.filter((p) => !libraryState.packs.some((x) => x.id === `pk-${slug(cleanName(p.file))}`));
-      if (!missing.length) return;
-      const files = [];
-      for (const p of missing) {
-        const zr = await fetch(`./local-packs/${encodeURIComponent(p.file)}`);
-        if (zr.ok) files.push(new File([await zr.blob()], p.file, { type: 'application/zip' }));
-      }
-      const added = await this.importFiles(files);
-      for (const pack of added || []) {
-        pack.builtin = true;
-        await db.putPack(pack);
-      }
-      emit();
-    } catch (err) {
-      console.warn('[library] local pack seeding skipped', err);
+      const res = await fetch('./packs/index.json', { cache: 'no-cache' });
+      if (res.ok && (res.headers.get('content-type') || '').includes('json')) index = await res.json();
+    } catch {
+      // no bundled packs in this build
     }
+    if (!index?.packs?.length) return;
+    const favs = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]'));
+    const names = new Set(index.packs.map((p) => p.name));
+    // Drop older on-device imports of the same packs (avoid duplicates)
+    for (const p of [...libraryState.packs]) if (!p.builtin && names.has(p.name)) await this.removePack(p.id, false);
+    for (const p of index.packs) {
+      const { samples, ...pack } = p;
+      libraryState.packs.unshift(pack);
+      for (const smp of samples) {
+        smp.fav = favs.has(smp.id);
+        smp.url = new URL(smp.url, document.baseURI).href;
+        libraryState.samples.push(smp);
+      }
+    }
+    sortSamples();
+    emit();
   },
 
   categoryCounts(packId = null) {
@@ -215,6 +220,7 @@ export const library = {
   },
 
   async removePack(packId, notify = true) {
+    if (libraryState.packs.find((p) => p.id === packId)?.builtin) return;
     const ids = await db.deletePack(packId);
     const gone = new Set(ids);
     for (const id of gone) {
@@ -233,7 +239,14 @@ export const library = {
     const s = libraryState.samples.find((x) => x.id === id);
     if (!s) return;
     s.fav = !s.fav;
-    await db.updateSampleMeta(s);
+    if (s.builtin) {
+      const favs = new Set(JSON.parse(localStorage.getItem(FAV_KEY) || '[]'));
+      if (s.fav) favs.add(s.id);
+      else favs.delete(s.id);
+      localStorage.setItem(FAV_KEY, JSON.stringify([...favs]));
+    } else {
+      await db.updateSampleMeta(s);
+    }
     emit();
   },
 
@@ -245,7 +258,10 @@ export const library = {
       bufferCache.set(id, hit);
       return hit.buffer;
     }
-    const bytes = await db.getSampleBytes(id);
+    const meta = libraryState.samples.find((x) => x.id === id);
+    const bytes = meta?.url
+      ? await (await fetch(meta.url)).arrayBuffer()
+      : await db.getSampleBytes(id);
     if (!bytes) throw new Error('sample missing');
     const ctx = Tone.getContext().rawContext;
     const buffer = await ctx.decodeAudioData(bytes.slice(0));

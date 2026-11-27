@@ -12,6 +12,7 @@ export const CATEGORIES = [
   { id: 'BASS', label: 'BASS', kind: 'pitched' },
   { id: 'STAB', label: 'STABS', kind: 'pitched' },
   { id: 'LEAD', label: 'LEADS', kind: 'pitched' },
+  { id: 'RIFF', label: 'RIFFS', kind: 'pitched' },
   { id: 'PAD', label: 'PADS', kind: 'pitched' },
   { id: 'STRING', label: 'STRINGS', kind: 'pitched' },
   { id: 'VOX', label: 'VOX', kind: 'pitched' },
@@ -21,9 +22,10 @@ export const CATEGORIES = [
 
 // Ordered: first match wins. Tested against the lower-cased "folder/file" path.
 const RULES = [
-  ['VOX', /\b(vox|vocal|voice|acapella|shout|chant|spoken)\b/],
+  ['VOX', /\b(vox|vocals?|voices?|acapellas?|shouts?|chants?|spoken|mc)\b/],
+  ['RIFF', /\b(riffs?|arps|hits|brass|horns?|strums?)\b/],
   ['BREAK', /\b(break|breaks|amen|think|funky drummer|apache|breakbeat)\b/],
-  ['FX', /\b(fx|sfx|riser|sweep|impact|noise|uplifter|downlifter|reverse|siren|horn)\b/],
+  ['FX', /\b(fx|sfx|risers?|sweeps?|impacts?|noise|uplifter|downlifter|reverse|siren)\b/],
   ['STAB', /\b(stab|stabs|hoover|rave)\b/],
   ['BASS', /\b(bass|sub|reese|808 bass)\b/],
   ['PAD', /\b(pad|pads|chord|chords|atmos|atmosphere)\b/],
@@ -48,6 +50,8 @@ export function naturalCompare(a, b) {
 export function cleanName(fileName) {
   return fileName
     .replace(/\.[^.]+$/, '')
+    // Camelot key suffix ("Angles Break - 4A"): the key is shown separately
+    .replace(/\s*-\s*(1[0-2]|[1-9])[AB]$/i, '')
     .replace(/[_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -57,6 +61,7 @@ export function cleanName(fileName) {
 export function shortLabel(name, max = 18) {
   return name
     .replace(/\s*-?\s*\d{2,3}(?:\.\d+)?\s*bpm\b/gi, '')
+    .replace(/\s*-\s*(1[0-2]|[1-9])[AB]\s*$/i, '')
     .replace(/\b(version|loop|edit|take|var(?:iation)?)\s*(\d+)/gi, (m, w, n, off) => (off === 0 ? m : `${w[0]}${n}`))
     .replace(/\s+[-–]+\s+|\s+[-–]+|[-–]+\s+|_+/g, ' ')
     .replace(/\s+/g, ' ')
@@ -73,11 +78,43 @@ function bpmFromPath(path) {
   return v >= 60 && v <= 200 ? v : null;
 }
 
+// Camelot wheel codes used by DJ tools ("8A" = A minor, "8B" = C major)
+const CAMELOT_A = ['G#m', 'D#m', 'A#m', 'Fm', 'Cm', 'Gm', 'Dm', 'Am', 'Em', 'Bm', 'F#m', 'C#m'];
+const CAMELOT_B = ['B', 'F#', 'C#', 'G#', 'D#', 'A#', 'F', 'C', 'G', 'D', 'A', 'E'];
+
+function keyFromCamelot(name) {
+  const m = /(?:^|[\s_\-(])(1[0-2]|[1-9])([AB])(?=$|[\s_\-).])/.exec(name);
+  if (!m) return null;
+  const i = Number(m[1]) - 1;
+  return m[2] === 'A' ? CAMELOT_A[i] : CAMELOT_B[i];
+}
+
 function keyFromName(name) {
   // " Am ", "- F#m", "(C)", "_Gmin" — conservative: needs a separator on both sides
   const m = /(?:^|[\s_\-(])([A-G](?:#|b)?)(m|min|maj)?(?=$|[\s_\-)])/.exec(name);
   if (!m) return null;
   return `${m[1]}${m[2] && m[2] !== 'maj' ? 'm' : ''}`;
+}
+
+/**
+ * Loops are cut to whole bars, so tempo = bars × 240 / duration for some bar count.
+ * Pick the bar count whose tempo is most plausible: breaks favour 150–180 BPM (jungle / d&b),
+ * otherwise the candidate nearest the transient detector's estimate (octave-folded).
+ */
+function tempoFromBars(duration, category, detected) {
+  const cands = [0.5, 1, 2, 4, 8, 16]
+    .map((bars) => ({ bars, bpm: (bars * 240) / duration }))
+    .filter((c) => c.bpm >= 70 && c.bpm <= 190);
+  if (!cands.length) return detected || null;
+  if (category === 'BREAK') {
+    const jungle = cands.filter((c) => c.bpm >= 150 && c.bpm <= 180 && c.bars >= 1);
+    if (jungle.length) return Math.round(jungle[0].bpm * 10) / 10;
+  }
+  if (detected) {
+    const dist = (c) => Math.min(...[detected / 2, detected, detected * 2].map((d) => Math.abs(Math.log2(c.bpm / d))));
+    cands.sort((a, b) => dist(a) - dist(b) || (a.bars >= 1 ? -1 : 1));
+  }
+  return Math.round(cands[0].bpm * 10) / 10;
 }
 
 /** Nearest musically sane loop length in beats for a duration at a tempo. */
@@ -167,17 +204,19 @@ export function classifySample(path, buffer) {
   // Anything with a tempo in its name, or long + rhythmic, is a loop
   if (bpm && duration > 0.9) kind = 'loop';
   if (!bpm && (category === 'BREAK' || category === 'LOOP') && duration > 0.9) {
-    const a = analyzeAudioBuffer(buffer);
-    if (a?.detectedBpm) bpm = a.detectedBpm;
+    bpm = tempoFromBars(duration, category, analyzeAudioBuffer(buffer)?.detectedBpm);
     kind = 'loop';
   }
+  // Very short "breaks"/"loops" are really one-shots (a single hit cut from a break)
+  if ((category === 'BREAK' || category === 'LOOP') && duration <= 0.9 && !bpmFromPath(path)) kind = 'hit';
   if (category === 'OTHER' && kind === 'loop') category = 'LOOP';
   if (category === 'OTHER' && duration < 1.2) category = 'DRUM';
 
   const beats = kind === 'loop' && bpm ? snapBeats(duration, bpm) : null;
   // Chords (pads) have no single root worth showing; single-note material does
   const root = kind === 'pitched' && category !== 'PAD' && duration > 0.15 ? detectRootMidi(buffer) : null;
-  const key = keyFromName(fileName.replace(/\.[^.]+$/, ''));
+  const base = fileName.replace(/\.[^.]+$/, '');
+  const key = keyFromCamelot(base) || keyFromName(base);
 
   return { category, kind, bpm, beats, root, key, duration };
 }

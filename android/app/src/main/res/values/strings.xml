@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ROOMSERVICE</string>
+    <string name="title_activity_main">ROOMSERVICE</string>
+    <string name="package_name">com.nonothing.roomservice</string>
+    <string name="custom_url_scheme">com.nonothing.roomservice</string>
+</resources>

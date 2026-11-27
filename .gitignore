@@ -4,3 +4,7 @@ dist/
 *.zip
 .certs/
 local-packs/
+packs/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/

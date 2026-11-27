@@ -7,12 +7,17 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "dev:lan": "LAN_HTTPS=1 vite --host"
+    "dev:lan": "LAN_HTTPS=1 vite --host",
+    "packs": "node tools/build-packs.mjs",
+    "apk": "bash tools/build-apk.sh"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.3",
+    "@capacitor/core": "^8.6.3",
     "tone": "^15.0.4"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.3",
     "vite": "^6.0.0"
   }
 }

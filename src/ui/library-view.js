@@ -40,8 +40,8 @@ function categoryList() {
 
 function metaText(s) {
   if (s.kind === 'loop' && s.bpm) return `${Math.round(s.bpm)}  ${s.beats ? `${s.beats}B` : ''}`.trim();
-  if (s.root != null) return midiToNote(s.root);
   if (s.key) return s.key;
+  if (s.root != null) return midiToNote(s.root);
   return `${s.duration < 1 ? s.duration.toFixed(2) : s.duration.toFixed(1)}s`;
 }
 
@@ -335,7 +335,8 @@ export function renderLibraryOverlay(panelEl) {
   const sync = () => {
     if (!refs || refs.list !== list) return;
     title.innerHTML = `LIBRARY <i class="oh-sub">${libraryState.samples.length || ''}</i>`;
-    delBtn.style.display = ui.packId ? '' : 'none';
+    const selPack = libraryState.packs.find((p) => p.id === ui.packId);
+    delBtn.style.display = selPack && !selPack.builtin ? '' : 'none';
     renderCats();
     renderList();
     renderFooter();

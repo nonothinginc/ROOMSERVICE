@@ -339,7 +339,8 @@ class InputController {
     let kbRy = (this.keysDown.has('KeyK') ? 1 : 0) - (this.keysDown.has('KeyI') ? 1 : 0);
 
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
-    const pad = Array.from(pads).find((p) => p && p.connected) || null;
+    // Native bridge wins inside the APK (events are consumed natively, so no double input)
+    const pad = (nativePad.connected ? nativePad : null) || Array.from(pads).find((p) => p && p.connected) || null;
 
     if (!pad) {
       this.diagState.connected = false;
@@ -583,3 +584,31 @@ class InputController {
 }
 
 export const input = new InputController();
+
+/**
+ * Native pad (APK): MainActivity pushes the RG477V controls here as the standard layout,
+ * so input works even if the system WebView has no Gamepad API.
+ */
+const nativePad = {
+  connected: false,
+  id: 'RG477V NATIVE',
+  mapping: 'standard',
+  buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })),
+  axes: [0, 0, 0, 0],
+  timestamp: 0
+};
+window.__rsNativePad = (buttons, axes) => {
+  nativePad.connected = true;
+  for (let i = 0; i < nativePad.buttons.length; i++) {
+    const on = Boolean(buttons[i]);
+    nativePad.buttons[i].pressed = on;
+    nativePad.buttons[i].value = on ? 1 : 0;
+  }
+  for (let i = 0; i < 4; i++) nativePad.axes[i] = Number(axes[i]) || 0;
+  nativePad.timestamp = performance.now();
+  // Audio unlock on first hardware press (no touch needed inside the APK)
+  if (buttons.some(Boolean)) engine.unlock();
+};
+export function getNativePad() {
+  return nativePad.connected ? nativePad : null;
+}

@@ -4,44 +4,36 @@ import { defineConfig } from 'vite';
 
 const root = path.dirname(new URL(import.meta.url).pathname);
 const certDir = path.join(root, '.certs');
-const packsDir = path.join(root, 'local-packs');
 
 /**
- * Local-only sample packs. ZIPs dropped in ./local-packs (gitignored) are served by the
- * dev server at ./local-packs/ and auto-seeded into the LIBRARY on first launch.
- * They are never part of `vite build` output, so they cannot reach GitHub Pages.
+ * Built-in sample packs for this device only.
+ * tools/build-packs.mjs turns ./local-packs into ./packs (extracted + pre-analysed index.json).
+ * Dev server serves ./packs; `npm run build:apk` (INCLUDE_PACKS=1) copies them into dist for the APK.
+ * Plain `npm run build` never includes them. Both folders are gitignored.
  */
-function localPacks() {
+function bundledPacks() {
+  const packsDir = path.join(root, 'packs');
   return {
-    name: 'roomservice-local-packs',
-    apply: 'serve',
+    name: 'roomservice-bundled-packs',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const url = decodeURIComponent((req.url || '').split('?')[0]);
-        const m = /\/local-packs\/(.*)$/.exec(url);
+        const m = /\/packs\/(.+)$/.exec(url);
         if (!m) return next();
-        if (!fs.existsSync(packsDir)) {
+        const file = path.normalize(path.join(packsDir, m[1]));
+        if (!file.startsWith(packsDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
           res.statusCode = 404;
           return res.end();
         }
-        if (m[1] === 'index.json') {
-          const packs = fs
-            .readdirSync(packsDir)
-            .filter((f) => /\.zip$/i.test(f))
-            .map((f) => ({ file: f, size: fs.statSync(path.join(packsDir, f)).size }));
-          res.setHeader('Content-Type', 'application/json');
-          res.setHeader('Cache-Control', 'no-store');
-          return res.end(JSON.stringify({ packs }));
-        }
-        const file = path.join(packsDir, path.basename(m[1]));
-        if (!file.startsWith(packsDir) || !fs.existsSync(file)) {
-          res.statusCode = 404;
-          return res.end();
-        }
-        res.setHeader('Content-Type', 'application/zip');
+        res.setHeader('Content-Type', file.endsWith('.json') ? 'application/json' : 'audio/wav');
         res.setHeader('Content-Length', fs.statSync(file).size);
         fs.createReadStream(file).pipe(res);
       });
+    },
+    closeBundle() {
+      if (!process.env.INCLUDE_PACKS || !fs.existsSync(packsDir)) return;
+      fs.cpSync(packsDir, path.join(root, 'dist', 'packs'), { recursive: true });
+      console.log('[packs] bundled into dist/packs');
     }
   };
 }
@@ -55,7 +47,7 @@ const lanHttps =
 
 export default defineConfig({
   base: './',
-  plugins: [localPacks()],
+  plugins: [bundledPacks()],
   server: {
     host: true,
     port: 5173,

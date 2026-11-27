@@ -77,6 +77,9 @@ Every decision below came directly from user feedback and **must not be regresse
 ## 3. Open Items & Immediate Next Priorities
 
 - **Pending User Review:** Skin v2 reskin + ring-button fix, playlist LOOP + >8-bar songs, playlist SAMPLE editor, Brickchord JAM (session 03). Compare look against `/ROOMSERVICE/legacy/`.
+- **Project is now LOCAL-FIRST (2026-11-27):** the target is a sideloaded APK on the RG477V; GitHub is code backup only (no more Pages deploys needed). Packs live in `local-packs/` → `npm run packs` → `packs/` (both gitignored) and are bundled only into the APK.
+- **APK:** Capacitor 8 (`android/`), `npm run apk` → `android/app/build/outputs/apk/debug/ROOMSERVICE.apk`. Needs JDK 21 (`/opt/homebrew/opt/openjdk@21`) + SDK platform 36 / build-tools 36 in `~/Library/Android/sdk` (installed by direct download; sdkmanager stalls). **LuLu firewall must allow `java` (openjdk@21)** or Gradle cannot download.
+- **Native gamepad bridge:** `MainActivity.java` maps Android key/motion events to the standard layout and calls `window.__rsNativePad`; B/BACK reach the app as B; immersive, keep-screen-on, landscape.
 - **Local build:** `npm run dev:lan` → https://192.168.1.113:5173 (self-signed). `local-packs/*.zip` auto-seed the LIBRARY (local only).
 - **TAPE deck** on the master (mode wheel / MIX → TAPE). TAPE-1 + DRIVE worklets now genuinely run (native AudioContext).
 - **Sample packs are never committed/deployed** (public repo; third-party licences). Users import packs on-device via LIBRARY.
