@@ -182,13 +182,32 @@ export class StretchBanks {
       const L = buffer.getChannelData(0).slice();
       const R = buffer.numberOfChannels > 1 ? buffer.getChannelData(1).slice() : null;
       node.port.postMessage({ type: 'load', L, R }, R ? [L.buffer, R.buffer] : [L.buffer]);
-      node.connect(destination);
-      b = { node, lastUsed: 0 };
+      // Connected only while it has voices: idle worklets still cost a JS call per render quantum
+      b = { node, dest: destination, connected: false, busyUntil: 0, lastUsed: 0 };
       this.banks.set(key, b);
       this.evict();
     }
     b.lastUsed = performance.now();
     return b.node;
+  }
+
+  /** Disconnect banks whose voices have all finished. */
+  sweep(now) {
+    for (const b of this.banks.values()) {
+      if (b.connected && b.busyUntil < now) {
+        try {
+          b.node.disconnect();
+        } catch {
+          // ignore
+        }
+        b.connected = false;
+      }
+    }
+  }
+
+  bankFor(node) {
+    for (const b of this.banks.values()) if (b.node === node) return b;
+    return null;
   }
 
   /** Keep at most 24 banks; drop the least recently used. */
@@ -205,6 +224,14 @@ export class StretchBanks {
 
   play(node, { id, when, offsetSec, durSec, rate, semitones, mode, grainSize, spray, gainLin, fadeInSec, fadeOutSec, intoSec }) {
     const sr = this.ctx.sampleRate;
+    const bank = this.bankFor(node);
+    if (bank) {
+      if (!bank.connected) {
+        node.connect(bank.dest);
+        bank.connected = true;
+      }
+      bank.busyUntil = Math.max(bank.busyUntil, when + durSec + 0.25);
+    }
     const m = MODES[mode] || MODES.BEATS;
     const grainMs = mode === 'TEXTURE' && grainSize ? grainSize * 1000 : m.grainMs;
     const G = Math.max(256, Math.round((grainMs / 1000) * sr));

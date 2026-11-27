@@ -10,14 +10,19 @@
  */
 const KEY = 'roomservice_latency_mode_v1';
 
+// Measured on the RG477V (WebView 113, 48 kHz): 'interactive' = 5.33 ms buffer, 0.01 = 10.67 ms,
+// 'balanced' = 20 ms, 'playback' = 21 ms buffer but ~300 ms output latency (unusable).
+// TIGHT = smallest buffer; LIVE (default) = 2x headroom; SAFE = dense sessions.
 export const LATENCY_PROFILES = {
-  LIVE: { latencyHint: 'interactive', lookAhead: 0.06 },
+  TIGHT: { latencyHint: 'interactive', lookAhead: 0.06 },
+  LIVE: { latencyHint: 0.01, lookAhead: 0.06 },
   SAFE: { latencyHint: 'balanced', lookAhead: 0.12 }
 };
 
 export function getLatencyMode() {
   try {
-    return localStorage.getItem(KEY) === 'SAFE' ? 'SAFE' : 'LIVE';
+    const m = localStorage.getItem(KEY);
+    return m === 'SAFE' || m === 'TIGHT' ? m : 'LIVE';
   } catch {
     return 'LIVE';
   }
@@ -29,7 +34,7 @@ export function getLatencyProfile() {
 
 export function setLatencyMode(mode) {
   try {
-    localStorage.setItem(KEY, mode === 'SAFE' ? 'SAFE' : 'LIVE');
+    localStorage.setItem(KEY, ['TIGHT', 'LIVE', 'SAFE'].includes(mode) ? mode : 'LIVE');
   } catch {
     // ignore
   }

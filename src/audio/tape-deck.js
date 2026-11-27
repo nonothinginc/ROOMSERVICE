@@ -108,6 +108,30 @@ class TapeDeck extends AudioWorkletProcessor {
     const dk = 1 + this.drive * 3; // like a real drive stage: louder and rounder, max ~4x into tanh
     const dNorm = Math.tanh(dk);
 
+    // Idle fast path (live, no crossfade, no colour, not printing): two memcpys into the tape,
+    // straight copy to the output, coarse peak every 8th sample
+    if (live && this.mix <= 0 && this.drive <= 0.001 && this.age <= 0 && !this.printing && inL) {
+      const w0 = this.wp % N;
+      const first = Math.min(n, N - w0);
+      this.L.set(first === n ? inL : inL.subarray(0, first), w0);
+      this.R.set(first === n ? inR : inR.subarray(0, first), w0);
+      if (first < n) { this.L.set(inL.subarray(first), 0); this.R.set(inR.subarray(first), 0); }
+      this.wp += n;
+      this.rp = this.wp - 1;
+      this.v = 1;
+      oL.set(inL);
+      if (oR !== oL) oR.set(inR);
+      for (let s = 0; s < n; s += 8) {
+        const a = Math.abs(inL[s]) > Math.abs(inR[s]) ? Math.abs(inL[s]) : Math.abs(inR[s]);
+        if (a > this.outPeak) this.outPeak = a;
+        if (a > this.peakAcc) this.peakAcc = a;
+      }
+      this.peakCount += n;
+      if (this.peakCount >= PEAK_BLOCK) {
+        if (this.nPeaks < 16) this.tel[11 + this.nPeaks++] = Math.min(255, Math.round(this.peakAcc * 255));
+        this.peakAcc = 0; this.peakCount -= PEAK_BLOCK;
+      }
+    } else
     for (let s = 0; s < n; s++) {
       const xl = inL ? inL[s] : 0;
       const xr = inR ? inR[s] : 0;
@@ -274,12 +298,14 @@ export function createTapeDeck(Tone, { onPrint } = {}) {
           printR = [];
         }
       };
-      // Splice into the master chain only once the worklet exists (otherwise stay direct)
-      Tone.connect(from, node);
-      Tone.connect(node, to);
-      from.disconnect(to);
+      // Not spliced in yet: the deck joins the master only while armed (TAPE open / printing).
+      // On Android WebView, JS worklets are not reliably real-time; an always-on worklet on the
+      // master put the whole mix at risk of crackle.
+      route.from = from;
+      route.to = to;
       telemetry.ready = true;
       node.port.postMessage({ type: 'tone', ...state });
+      if (route.wantArmed) setArmed(true);
     } catch (err) {
       console.warn('[tape-deck] worklet unavailable, master stays direct', err);
     } finally {
@@ -288,10 +314,34 @@ export function createTapeDeck(Tone, { onPrint } = {}) {
   }
 
   const send = (msg) => node?.port.postMessage(msg);
+  const route = { from: null, to: null, armed: false, wantArmed: false };
+
+  function setArmed(on) {
+    route.wantArmed = on;
+    if (!node || !route.from || on === route.armed) return;
+    try {
+      if (on) {
+        Tone.connect(route.from, node);
+        Tone.connect(node, route.to);
+        route.from.disconnect(route.to);
+      } else {
+        node.port.postMessage({ type: 'mode', mode: 'live' });
+        Tone.connect(route.from, route.to);
+        route.from.disconnect(node);
+        node.disconnect();
+      }
+      route.armed = on;
+      telemetry.armed = on;
+    } catch (err) {
+      console.warn('[tape-deck] arm failed', err);
+    }
+  }
 
   return {
     telemetry,
     attach,
+    /** Splice the deck into the master (TAPE open / printing) or bypass it completely. */
+    setArmed,
     /** mode: live | stop | rev | back | vari | scrub | loop */
     setMode(mode, opts = {}) {
       send({ type: 'mode', mode, ...opts });
@@ -310,6 +360,7 @@ export function createTapeDeck(Tone, { onPrint } = {}) {
       return { ...state };
     },
     setPrint(on) {
+      if (on) setArmed(true);
       send({ type: 'print', on });
     },
     peakAt(absBlock) {

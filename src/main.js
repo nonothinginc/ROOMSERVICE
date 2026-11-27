@@ -315,6 +315,8 @@ function boot() {
   }
   requestAnimationFrame(frame);
 
+  const inApp = Boolean(window.Capacitor?.isNativePlatform?.());
+
   // APK: keep a foreground media service alive only while the transport plays
   // (audio keeps going with the screen off / app in background)
   const nativeApi = window.Capacitor?.Plugins?.RoomserviceNative;
@@ -331,10 +333,10 @@ function boot() {
   }
 
   // Dev-only handle for automated UI/audio tests (tools/*.mjs); stripped from production builds
-  if (import.meta.env.DEV) window.__rs = { engine, store, getSongEnd };
+  // Also inside the APK (personal build): lets adb + DevTools inspect the running engine on the device
+  if (import.meta.env.DEV || inApp) window.__rs = { engine, store, getSongEnd };
 
   // Inside the APK assets are local files: a service worker would only risk stale code after updates
-  const inApp = Boolean(window.Capacitor?.isNativePlatform?.());
   if (inApp && 'serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()));
   }

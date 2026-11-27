@@ -78,6 +78,7 @@ function makePad(id, label, hint, mode, getOpts = () => ({})) {
 
 export function renderTapeDeckOverlay(panelEl) {
   panelEl.innerHTML = '';
+  deck()?.setArmed(true);
   panelEl.classList.add('tape-panel');
   const st = store.getState();
 
@@ -268,8 +269,9 @@ export function tickTapeDeckOverlay() {
   if (!refs) return;
   const st = store.getState();
   if (st.detailOverlay?.type !== 'tape') {
-    // Leaving the deck always returns the master to live
+    // Leaving the deck returns the master to live and takes the worklet out of the path
     if (refs.held.length) deck()?.setMode('live');
+    if (!deck()?.telemetry.printing) deck()?.setArmed(false);
     refs = null;
     return;
   }

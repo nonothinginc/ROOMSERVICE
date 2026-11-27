@@ -112,20 +112,40 @@ export function createNode(Tone) {
 
   updateCurve();
 
+  // The sample-rate crusher is a JS AudioWorklet. Keep it OUT of the signal path unless RATE > 0:
+  // on Android WebView worklets are not reliably real-time, and an idle worklet on every drum
+  // track crackled the whole mix.
   const rawCtx = Tone.getContext().rawContext;
+  let workletReady = false;
+  let crusherInPath = false;
   ensureWorkletLoaded(rawCtx).then((ok) => {
-    if (!ok || disposed) return;
-    try {
-      workletNode = new AudioWorkletNode(rawCtx, 'roomservice-sample-hold');
-      const param = workletNode.parameters.get('crush');
-      if (param) param.value = state.crush / 100;
-      shaper.disconnect(toneFilter);
-      Tone.connect(shaper, workletNode);
-      Tone.connect(workletNode, toneFilter);
-    } catch {
-      workletNode = null;
-    }
+    workletReady = Boolean(ok) && !disposed;
+    syncCrusher();
   });
+
+  function syncCrusher() {
+    const want = workletReady && state.crush > 0;
+    if (want === crusherInPath || disposed) return;
+    try {
+      if (want) {
+        if (!workletNode) {
+          workletNode = new AudioWorkletNode(rawCtx, 'roomservice-sample-hold');
+        }
+        const param = workletNode.parameters.get('crush');
+        if (param) param.value = state.crush / 100;
+        shaper.disconnect(toneFilter);
+        Tone.connect(shaper, workletNode);
+        Tone.connect(workletNode, toneFilter);
+      } else {
+        shaper.disconnect(workletNode);
+        workletNode.disconnect();
+        Tone.connect(shaper, toneFilter);
+      }
+      crusherInPath = want;
+    } catch {
+      // keep whatever path is intact
+    }
+  }
 
   function setParam(id, value) {
     if (!(id in state)) return;
@@ -134,6 +154,7 @@ export function createNode(Tone) {
     if (id === 'drive' || id === 'bits') {
       updateCurve();
     } else if (id === 'crush') {
+      syncCrusher();
       if (workletNode) {
         const param = workletNode.parameters.get('crush');
         if (param) param.setTargetAtTime(Math.max(0, Math.min(1, value / 100)), now, 0.015);

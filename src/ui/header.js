@@ -313,13 +313,14 @@ export function renderProjectModal(modalEl) {
   latLbl.textContent = 'LATENCY';
   const latSeg = document.createElement('div');
   latSeg.className = 'dsp-seg-bar';
-  latSeg.style.gridTemplateColumns = 'repeat(2, 1fr)';
-  latSeg.style.minWidth = '160px';
-  for (const mode of ['LIVE', 'SAFE']) {
+  latSeg.style.gridTemplateColumns = 'repeat(3, 1fr)';
+  latSeg.style.minWidth = '220px';
+  for (const mode of ['TIGHT', 'LIVE', 'SAFE']) {
     const b = document.createElement('button');
     b.className = `dsp-seg-btn ${getLatencyMode() === mode ? 'active' : ''}`;
     b.textContent = mode;
-    b.title = mode === 'LIVE' ? 'Tightest feel (60 ms sequencing lookahead)' : 'Dense sessions: bigger buffers, 120 ms lookahead';
+    b.title =
+      mode === 'TIGHT' ? 'Smallest audio buffer (lowest latency, can crackle)' : mode === 'LIVE' ? 'Default: steady buffer for playing live' : 'Dense sessions: biggest buffers, 120 ms lookahead';
     b.onclick = async () => {
       if (getLatencyMode() === mode) return;
       setLatencyMode(mode);

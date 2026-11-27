@@ -1474,6 +1474,8 @@ class AudioEngine {
     const st = store.getState();
     if (on) this.tapePrintStart = st.isPlaying && st.playMode === 'SONG' ? Math.floor(st.currentStep / 16) * 16 : null;
     this.tapeDeck?.setPrint(on);
+    // Deck closed and print finished: take the worklet back out of the master path
+    if (!on && store.getState().detailOverlay?.type !== 'tape') this.tapeDeck?.setArmed(false);
   }
 
   /** A finished PRINT lands on the playlist as an un-warped audio clip at the bar it started. */
@@ -1554,6 +1556,7 @@ class AudioEngine {
   /** Stretch voices end on the audio thread without a callback: drop finished entries. */
   pruneAudioSources() {
     const now = Tone.immediate();
+    this.stretch?.sweep(now);
     for (const [k, e] of this.activeAudioSources) if (e.stretchNode && e.endT < now) this.activeAudioSources.delete(k);
   }
 
