@@ -9,7 +9,9 @@
     "preview": "vite preview --host",
     "dev:lan": "LAN_HTTPS=1 vite --host",
     "packs": "node tools/build-packs.mjs",
-    "apk": "bash tools/build-apk.sh"
+    "apk": "bash tools/build-apk.sh",
+    "device:dev": "bash tools/device-dev.sh full",
+    "device:serve": "bash tools/device-dev.sh serve"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.3",
