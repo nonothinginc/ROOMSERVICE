@@ -19,7 +19,7 @@ export function createNode(Tone) {
   const output = new Tone.Gain(1);
   const dryWet = new Tone.CrossFade(0.35);
   const ping = new Tone.PingPongDelay({ delayTime: '8n.', feedback: 0.42, maxDelay: 2.0 });
-  const damp = new Tone.Filter({ type: 'lowpass', frequency: 3600, Q: 0.5 });
+  const damp = new Tone.BiquadFilter({ type: 'lowpass', frequency: 3600, Q: 0.5 });
   const meter = new Tone.Meter({ smoothing: 0.7 });
 
   input.connect(dryWet.a);

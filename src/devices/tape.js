@@ -364,9 +364,9 @@ export function createNode(Tone) {
   const input = new Tone.Gain(1);
   const output = new Tone.Gain(1);
   const dryWet = new Tone.CrossFade(1.0);
-  const headBump = new Tone.Filter({ type: 'peaking', frequency: 88, Q: 1.35, gain: 2.5 });
+  const headBump = new Tone.BiquadFilter({ type: 'peaking', frequency: 88, Q: 1.35, gain: 2.5 });
   const fallbackShaper = new Tone.WaveShaper((x) => Math.tanh(x * 1.8) / Math.tanh(1.8), 512);
-  const fallbackLoss = new Tone.Filter({ type: 'lowpass', frequency: 14800, Q: 0.65 });
+  const fallbackLoss = new Tone.BiquadFilter({ type: 'lowpass', frequency: 14800, Q: 0.65 });
   const outGain = new Tone.Gain(1);
   const outMeter = new Tone.Meter({ smoothing: 0.72 });
 

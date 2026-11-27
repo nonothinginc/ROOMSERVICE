@@ -79,7 +79,7 @@ export function createNode(Tone) {
   const output = new Tone.Gain(1);
   const dryWet = new Tone.CrossFade(0.6);
   const shaper = new Tone.WaveShaper((x) => x, 512);
-  const toneFilter = new Tone.Filter({ type: 'lowpass', frequency: 9000, Q: 0.7 });
+  const toneFilter = new Tone.BiquadFilter({ type: 'lowpass', frequency: 9000, Q: 0.7 });
 
   input.connect(dryWet.a);
   input.connect(shaper);

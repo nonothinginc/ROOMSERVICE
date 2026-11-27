@@ -62,11 +62,11 @@ export function createNode(Tone) {
   const input = new Tone.Gain(1);
   const output = new Tone.Gain(0.88);
   const bus = new Tone.Gain(1);
-  const busHpf = new Tone.Filter({ type: 'highpass', frequency: 24, Q: 0.7 });
-  const subShelf = new Tone.Filter({ type: 'lowshelf', frequency: 75, gain: 2 });
-  const airShelf = new Tone.Filter({ type: 'highshelf', frequency: 7500, gain: 1 });
+  const busHpf = new Tone.BiquadFilter({ type: 'highpass', frequency: 24, Q: 0.7 });
+  const subShelf = new Tone.BiquadFilter({ type: 'lowshelf', frequency: 75, gain: 2 });
+  const airShelf = new Tone.BiquadFilter({ type: 'highshelf', frequency: 7500, gain: 1 });
   const shaper = new Tone.Distortion({ distortion: 0.14, wet: 0.18 });
-  const toneFilter = new Tone.Filter({ type: 'lowpass', frequency: 9500, Q: 0.7 });
+  const toneFilter = new Tone.BiquadFilter({ type: 'lowpass', frequency: 9500, Q: 0.7 });
   const busComp = new Tone.Compressor({ threshold: -12, ratio: 3.1, attack: 0.012, release: 0.11 });
   const compMakeup = new Tone.Gain(1.12);
   const meter = new Tone.Meter({ smoothing: 0.75 });
@@ -84,7 +84,7 @@ export function createNode(Tone) {
   // Per-voice stereo, filter & drive strip for Mode 0 (Virtual Analog 808/909 SYNTH)
   const synthStrips = Array.from({ length: 8 }, (_, idx) => {
     const rawIn = rawCtx.createGain();
-    const filter = new Tone.Filter({ type: 'lowpass', frequency: 18000, Q: 0.7 });
+    const filter = new Tone.BiquadFilter({ type: 'lowpass', frequency: 18000, Q: 0.7 });
     const shaperNode = rawCtx.createWaveShaper();
     const gain = new Tone.Gain(1);
     const panner = new Tone.Panner(DEFAULT_VOICE_PANS[idx] * 0.6);

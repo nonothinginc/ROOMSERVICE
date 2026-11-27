@@ -1,3 +1,5 @@
+import { createNativeFreeverb } from '../audio/native-freeverb.js';
+
 export const meta = {
   id: 'verb',
   name: 'VERB',
@@ -17,14 +19,15 @@ export function createNode(Tone) {
   const output = new Tone.Gain(1);
   const dryWet = new Tone.CrossFade(0.32);
   const pre = new Tone.Delay({ delayTime: 0.018, maxDelay: 0.2 });
-  const reverb = new Tone.Freeverb({ roomSize: 0.68, dampening: 5200 });
-  const dampFilter = new Tone.Filter({ type: 'lowpass', frequency: 5200 });
+  // Native-node Freeverb: Tone.Freeverb's 8 worklet combs cost ~10% of a core each (RG477V)
+  const reverb = createNativeFreeverb(Tone.getContext().rawContext, { roomSize: 0.68, dampening: 5200 });
+  const dampFilter = new Tone.BiquadFilter({ type: 'lowpass', frequency: 5200 });
   const meter = new Tone.Meter({ smoothing: 0.75 });
 
   input.connect(dryWet.a);
   input.connect(pre);
-  pre.connect(reverb);
-  reverb.connect(dampFilter);
+  pre.connect(reverb.input);
+  Tone.connect(reverb.output, dampFilter);
   dampFilter.connect(dryWet.b);
   dampFilter.connect(meter);
   dryWet.connect(output);

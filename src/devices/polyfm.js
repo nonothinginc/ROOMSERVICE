@@ -20,7 +20,7 @@ function midiToFreq(midi) {
 export function createNode(Tone) {
   const input = new Tone.Gain(1);
   const output = new Tone.Gain(0.75);
-  const filter = new Tone.Filter({ type: 'lowpass', frequency: 4800, Q: 1.1 });
+  const filter = new Tone.BiquadFilter({ type: 'lowpass', frequency: 4800, Q: 1.1 });
 
   const poly = new Tone.PolySynth(Tone.FMSynth, {
     maxPolyphony: 4,

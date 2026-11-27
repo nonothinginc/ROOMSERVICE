@@ -65,7 +65,7 @@ export function createNode(Tone) {
   const input = new Tone.Gain(1);
   const output = new Tone.Gain(0.8);
   const vca = new Tone.Gain(0);
-  const filter = new Tone.Filter({ type: 'lowpass', frequency: 9500, Q: 0.9 });
+  const filter = new Tone.BiquadFilter({ type: 'lowpass', frequency: 9500, Q: 0.9 });
 
   const cloudBuffer = createProceduralCloudBuffer(Tone);
   const player = new Tone.GrainPlayer({

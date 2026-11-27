@@ -15,9 +15,9 @@ export function createNode(Tone) {
   const input = new Tone.Gain(1);
   const output = new Tone.Gain(1);
 
-  const lowShelf = new Tone.Filter({ type: 'lowshelf', frequency: 160, gain: 0 });
-  const midPeak = new Tone.Filter({ type: 'peaking', frequency: 1000, Q: 1.2, gain: 0 });
-  const highShelf = new Tone.Filter({ type: 'highshelf', frequency: 3500, gain: 0 });
+  const lowShelf = new Tone.BiquadFilter({ type: 'lowshelf', frequency: 160, gain: 0 });
+  const midPeak = new Tone.BiquadFilter({ type: 'peaking', frequency: 1000, Q: 1.2, gain: 0 });
+  const highShelf = new Tone.BiquadFilter({ type: 'highshelf', frequency: 3500, gain: 0 });
 
   input.connect(lowShelf);
   lowShelf.connect(midPeak);
