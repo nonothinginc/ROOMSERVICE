@@ -1,3 +1,4 @@
+import { WORKLETS_OK } from '../audio/platform.js';
 export const meta = {
   id: 'drive',
   name: 'DRIVE',
@@ -55,7 +56,7 @@ registerProcessor('roomservice-sample-hold', SampleHoldProcessor);
 const workletLoadPromises = new WeakMap();
 
 function ensureWorkletLoaded(rawContext) {
-  if (!rawContext || !rawContext.audioWorklet) return Promise.resolve(false);
+  if (!WORKLETS_OK || !rawContext || !rawContext.audioWorklet) return Promise.resolve(false);
   if (workletLoadPromises.has(rawContext)) return workletLoadPromises.get(rawContext);
   const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);

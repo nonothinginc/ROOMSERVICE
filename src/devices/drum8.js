@@ -633,6 +633,8 @@ export function createNode(Tone) {
     getGlobalState,
     getMeter,
     getVisualizerData,
+    // Debug/A-B access to the bus processing (used from DevTools on the device)
+    __bus: { shaper, busComp, compMakeup, subShelf, airShelf, toneFilter, busHpf },
     dispose
   };
 }

@@ -1,3 +1,4 @@
+import { WORKLETS_OK } from './platform.js';
 /**
  * Audio-thread time-stretch for playlist audio clips (BEATS / TONES / TEXTURE warp modes).
  *
@@ -148,6 +149,7 @@ let ready = null;
 
 export function loadStretchWorklet(ctx) {
   if (ready) return ready;
+  if (!WORKLETS_OK) return (ready = Promise.resolve(false));
   const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
   ready = ctx.audioWorklet
     .addModule(url)

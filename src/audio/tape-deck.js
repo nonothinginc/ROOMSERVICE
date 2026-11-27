@@ -1,3 +1,4 @@
+import { WORKLETS_OK } from './platform.js';
 /**
  * TAPE DECK: a performable tape machine on the master bus.
  *
@@ -253,6 +254,7 @@ export function createTapeDeck(Tone, { onPrint } = {}) {
   const state = { age: 0, drive: 0 };
 
   async function attach(from, to) {
+    if (!WORKLETS_OK) return; // old WebView: deck unavailable (see platform.js)
     const url = URL.createObjectURL(new Blob([WORKLET], { type: 'application/javascript' }));
     try {
       await ctx.audioWorklet.addModule(url);

@@ -6,6 +6,7 @@ import { addUserSampleBuffer, ensureFactoryDrumKits, getReversedBuffer, getSampl
 import { createPunchFx } from './punch-fx.js';
 import { createTapeDeck } from './tape-deck.js';
 import { StretchBanks } from './stretch.js';
+import { attachNativeOut, hasNativeOut } from './native-out.js';
 import { attachRenderCapacity, getLatencyMode, getLatencyProfile, playoutGlitches, recordSlack, timing } from './perf.js';
 
 function evalAutoClip(autoClip, normX) {
@@ -228,7 +229,16 @@ class AudioEngine {
     Tone.connect(this.limiter, this.masterStereoMeter.input);
     this.limiter.connect(this.waveformAnalyser);
     this.limiter.connect(this.fftAnalyser);
-    this.limiter.toDestination();
+    // APK on the RG477V: the system WebView's own output path drops chunks, so the final mix goes
+    // to a native AudioTrack instead (native-out.js). Browser builds use the normal destination.
+    if (hasNativeOut()) {
+      this.nativeOut = attachNativeOut(Tone, this.limiter, { targetMs: 60 });
+      this.nativeOut.ready.then((ok) => {
+        if (!ok) this.limiter.toDestination();
+      });
+    } else {
+      this.limiter.toDestination();
+    }
 
     // Audio-thread time-stretch for playlist clips (replaces main-thread GrainPlayer grains)
     this.stretch = new StretchBanks(rawCtx);
@@ -1061,7 +1071,7 @@ class AudioEngine {
     const jam = this.jam;
     if (!jam || jam.stepLog.length === 0) return 0;
     const rawCtx = Tone.getContext().rawContext;
-    const heard = rawCtx.currentTime - (rawCtx.outputLatency || rawCtx.baseLatency || 0);
+    const heard = rawCtx.currentTime - this.outputLatencySec();
     let ref = jam.stepLog[0];
     for (const e of jam.stepLog) if (e.time <= heard) ref = e;
     const pos = ref.abs + (heard - ref.time) / (jam.stepDur || 0.125);
@@ -1218,6 +1228,13 @@ class AudioEngine {
     return { clip, patId, takes: others.length + 1 };
   }
 
+  /** Time from scheduling to the speaker: WebView output, or the native bridge when active. */
+  outputLatencySec() {
+    const raw = Tone.getContext().rawContext;
+    if (this.nativeOut?.ok) return (raw.baseLatency || 0) + this.nativeOut.latencySec();
+    return raw.outputLatency || raw.baseLatency || 0;
+  }
+
   recordTiming(time) {
     const now = Tone.getContext().rawContext.currentTime;
     recordSlack(time - now, now);
@@ -1238,7 +1255,8 @@ class AudioEngine {
       renderLoad: this.renderCapacity?.load ?? null,
       renderPeak: this.renderCapacity?.peak ?? null,
       underrunRatio: this.renderCapacity?.underruns ?? null,
-      glitchEvents: playoutGlitches(raw),
+      glitchEvents: this.nativeOut?.ok ? (this.nativeOut.stats()?.underruns ?? 0) : playoutGlitches(raw),
+      nativeOut: this.nativeOut?.ok ? this.nativeOut.stats() : null,
       liveVoices: this.activeAudioSources.size
     };
   }
@@ -1260,7 +1278,7 @@ class AudioEngine {
   getAudibleStep() {
     if (!this.stepLogCount) return store.getState().currentStep;
     const raw = Tone.getContext().rawContext;
-    const heard = raw.currentTime - (raw.outputLatency || raw.baseLatency || 0);
+    const heard = raw.currentTime - this.outputLatencySec();
     let best = -1;
     for (let k = 0; k < this.stepLogCount; k++) {
       const i = (((this.stepLogHead - 1 - k) % 16) + 16) % 16 * 3;

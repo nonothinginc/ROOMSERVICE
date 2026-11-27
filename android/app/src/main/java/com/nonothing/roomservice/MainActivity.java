@@ -40,6 +40,8 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WebView wv = getBridge().getWebView();
+        // Native audio output (see NativeAudioOut): page audio is tapped and played by our AudioTrack
+        wv.addJavascriptInterface(new NativeAudioOut(), "RoomserviceAudio");
         // Audio can start from gamepad input, not only touch
         wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
         hideSystemUi();

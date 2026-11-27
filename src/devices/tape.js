@@ -1,3 +1,4 @@
+import { WORKLETS_OK } from '../audio/platform.js';
 export const meta = {
   id: 'tape',
   name: 'TAPE-1',
@@ -341,7 +342,7 @@ registerProcessor('roomservice-tape-hysteresis', TapeHysteresisProcessor);
 const workletPromises = new WeakMap();
 
 function ensureTapeWorklet(rawContext) {
-  if (!rawContext || !rawContext.audioWorklet) return Promise.resolve(false);
+  if (!WORKLETS_OK || !rawContext || !rawContext.audioWorklet) return Promise.resolve(false);
   if (workletPromises.has(rawContext)) return workletPromises.get(rawContext);
   const blob = new Blob([WORKLET_CODE], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);
