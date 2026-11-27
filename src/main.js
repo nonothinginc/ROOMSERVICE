@@ -2,7 +2,7 @@ import './styles/main.css';
 import { engine } from './audio/engine.js';
 import { input } from './input/gamepad.js';
 import { getSongEnd, store } from './state/store.js';
-import { hasAutosave, saveAutosave } from './storage/project-archive.js';
+import { hasAutosave, restoreAutosave, saveAutosave } from './storage/project-archive.js';
 import { createDotMatrixDisplay } from './ui/dot-matrix.js';
 import { createHeader, createLeftRail, createRightRail, renderHistoryOverlay, renderProjectModal } from './ui/header.js';
 import { renderInstMenuModal } from './ui/inst-menu.js';
@@ -278,6 +278,16 @@ function boot() {
   mountActiveView();
   renderModalsAndOverlays();
 
+  // Latency-mode switch reloads the page: resume the autosave without the start screen
+  if (sessionStorage.getItem('roomservice_resume_once')) {
+    sessionStorage.removeItem('roomservice_resume_once');
+    restoreAutosave(store).then(() => {
+      const st = store.getState();
+      st.detailOverlay = null;
+      store.emit('overlay', null);
+    });
+  }
+
   hasAutosave().then((exists) => {
     const st = store.getState();
     st.hasSavedSession = exists;
@@ -304,6 +314,21 @@ function boot() {
     requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
+
+  // APK: keep a foreground media service alive only while the transport plays
+  // (audio keeps going with the screen off / app in background)
+  const nativeApi = window.Capacitor?.Plugins?.RoomserviceNative;
+  if (nativeApi) {
+    let wasPlaying = false;
+    store.subscribe((st, topic) => {
+      if (topic !== 'transport') return;
+      const playing = Boolean(store.getState().isPlaying);
+      if (playing !== wasPlaying) {
+        wasPlaying = playing;
+        nativeApi.setPlaying({ playing }).catch(() => {});
+      }
+    });
+  }
 
   // Dev-only handle for automated UI/audio tests (tools/*.mjs); stripped from production builds
   if (import.meta.env.DEV) window.__rs = { engine, store, getSongEnd };

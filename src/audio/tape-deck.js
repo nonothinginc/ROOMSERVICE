@@ -28,7 +28,10 @@ class TapeDeck extends AudioWorkletProcessor {
     this.loopA = 0; this.loopLen = 0;
     this.age = 0; this.drive = 0; this.wowPh = 0; this.flPh = 0;
     this.printing = false; this.printBufL = []; this.printBufR = []; this.printFrames = 0; this.printChunkL = null; this.printChunkR = null; this.printFill = 0;
-    this.peakAcc = 0; this.peakCount = 0; this.newPeaks = [];
+    this.peakAcc = 0; this.peakCount = 0;
+    // Telemetry block allocated once: [wp, rp, v, mode, mix, loopA, loopLen, out, printing, printFrames, nPeaks, peaks x16]
+    this.tel = new Float64Array(27); this.nPeaks = 0;
+    this.modeCode = { live: 0, stop: 1, rev: 2, back: 3, vari: 4, scrub: 5, loop: 6 };
     this.telemetryEvery = Math.round(sampleRate / 60 / 128); this.blockCount = 0;
     this.outPeak = 0;
     this.port.onmessage = (e) => this.onMsg(e.data);
@@ -165,7 +168,10 @@ class TapeDeck extends AudioWorkletProcessor {
       if (a > this.outPeak) this.outPeak = a;
       const ain = Math.abs(xl) > Math.abs(xr) ? Math.abs(xl) : Math.abs(xr);
       if (ain > this.peakAcc) this.peakAcc = ain;
-      if (++this.peakCount >= PEAK_BLOCK) { this.newPeaks.push(Math.min(255, Math.round(this.peakAcc * 255))); this.peakAcc = 0; this.peakCount = 0; }
+      if (++this.peakCount >= PEAK_BLOCK) {
+        if (this.nPeaks < 16) this.tel[11 + this.nPeaks++] = Math.min(255, Math.round(this.peakAcc * 255));
+        this.peakAcc = 0; this.peakCount = 0;
+      }
 
       if (this.printing) {
         this.printChunkL[this.printFill] = yl;
@@ -178,12 +184,12 @@ class TapeDeck extends AudioWorkletProcessor {
 
     if (++this.blockCount >= this.telemetryEvery) {
       this.blockCount = 0;
-      this.port.postMessage({
-        type: 't', wp: this.wp, rp: this.rp, v: this.v, mode: this.mode, mix: this.mix,
-        loopA: this.loopA, loopLen: this.loopLen, peaks: this.newPeaks, out: this.outPeak,
-        printing: this.printing, printFrames: this.printFrames
-      });
-      this.newPeaks = [];
+      const t = this.tel;
+      t[0] = this.wp; t[1] = this.rp; t[2] = this.v; t[3] = this.modeCode[this.mode] ?? 0; t[4] = this.mix;
+      t[5] = this.loopA; t[6] = this.loopLen; t[7] = this.outPeak; t[8] = this.printing ? 1 : 0;
+      t[9] = this.printFrames; t[10] = this.nPeaks;
+      this.port.postMessage(t);
+      this.nPeaks = 0;
       this.outPeak = 0;
     }
     return true;
@@ -195,6 +201,7 @@ registerProcessor('roomservice-tape-deck', TapeDeck);
 export const TAPE_SECONDS = 24;
 export const PEAK_BLOCK = 256;
 const PEAK_RING = Math.ceil((48000 * TAPE_SECONDS) / PEAK_BLOCK) + 64;
+const MODE_NAMES = ['live', 'stop', 'rev', 'back', 'vari', 'scrub', 'loop'];
 
 export function createTapeDeck(Tone, { onPrint } = {}) {
   const ctx = Tone.getContext().rawContext;
@@ -232,22 +239,22 @@ export function createTapeDeck(Tone, { onPrint } = {}) {
       });
       node.port.onmessage = (e) => {
         const d = e.data;
-        if (d.type === 't') {
-          telemetry.wp = d.wp;
-          telemetry.rp = d.rp;
-          telemetry.v = d.v;
-          telemetry.mode = d.mode;
-          telemetry.mix = d.mix;
-          telemetry.loopA = d.loopA;
-          telemetry.loopLen = d.loopLen;
-          telemetry.out = d.out;
-          telemetry.printing = d.printing;
-          telemetry.printFrames = d.printFrames;
-          for (const p of d.peaks) {
-            telemetry.peaks[telemetry.peakHead % PEAK_RING] = p;
+        if (d instanceof Float64Array) {
+          telemetry.wp = d[0];
+          telemetry.rp = d[1];
+          telemetry.v = d[2];
+          telemetry.mode = MODE_NAMES[d[3]] || 'live';
+          telemetry.mix = d[4];
+          telemetry.loopA = d[5];
+          telemetry.loopLen = d[6];
+          telemetry.out = d[7];
+          telemetry.printing = d[8] > 0;
+          telemetry.printFrames = d[9];
+          for (let i = 0; i < d[10]; i++) {
+            telemetry.peaks[telemetry.peakHead % PEAK_RING] = d[11 + i];
             telemetry.peakHead++;
           }
-          telemetry.tapeSecondsTotal = d.wp / ctx.sampleRate;
+          telemetry.tapeSecondsTotal = d[0] / ctx.sampleRate;
         } else if (d.type === 'print-chunk') {
           printL.push(d.l);
           printR.push(d.r);

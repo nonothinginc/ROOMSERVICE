@@ -174,7 +174,14 @@ export function createDotMatrixDisplay() {
       ['LATENCY', 'latencyMs'],
       ['FPS', 'fps'],
       ['NODES', 'activeVoices'],
-      ['PAD', 'padId']
+      ['PAD', 'padId'],
+      // Real-time health: step slack = how far ahead of the audio clock steps were scheduled
+      ['MODE', 'hMode'],
+      ['SLACK', 'hSlack'],
+      ['LATE', 'hLate'],
+      ['DSP', 'hDsp'],
+      ['OUT', 'hOut'],
+      ['GLITCH', 'hGlitch']
     ];
     for (const [label, key] of fields) {
       const cell = document.createElement('div');
@@ -276,6 +283,18 @@ export function createDotMatrixDisplay() {
         telemetryEls.fps.textContent = `${tel.fps}`;
         telemetryEls.activeVoices.textContent = `${tel.activeVoices}`;
         telemetryEls.padId.textContent = pad.connected ? 'RG477V' : 'KEYS';
+        // Health readouts at ~4 Hz (no per-frame DOM churn)
+        const nowMs = performance.now();
+        if (nowMs - (telemetryEls._hAt || 0) > 250) {
+          telemetryEls._hAt = nowMs;
+          const h = engine.getHealth();
+          telemetryEls.hMode.textContent = `${h.mode} ${h.lookAheadMs}ms`;
+          telemetryEls.hSlack.textContent = h.steps.n ? `${h.steps.minSlackMs}/${h.steps.avgSlackMs}ms` : '--';
+          telemetryEls.hLate.textContent = `${h.steps.late} · ${h.totalLate}`;
+          telemetryEls.hDsp.textContent = h.renderLoad != null ? `${Math.round(h.renderLoad * 100)}% ↑${Math.round((h.renderPeak || 0) * 100)}` : 'n/a';
+          telemetryEls.hOut.textContent = h.outputLatencyMs != null ? `${h.outputLatencyMs}ms` : '--';
+          telemetryEls.hGlitch.textContent = h.glitchEvents != null ? `${h.glitchEvents}` : h.underrunRatio != null ? `${(h.underrunRatio * 100).toFixed(1)}%` : 'n/a';
+        }
         telemetryEls.axes.textContent = `L(${smoothAxes[0].toFixed(2)},${smoothAxes[1].toFixed(2)}) R(${smoothAxes[2].toFixed(2)},${smoothAxes[3].toFixed(2)})`;
       }
       padCells.forEach((cell, i) => {

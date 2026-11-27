@@ -8,7 +8,7 @@ import {
   getSamplePool,
   onDrumKitsUpdated
 } from '../audio/drum-kits.js';
-import { triggerVA808, triggerVA909 } from '../audio/analog-drums.js';
+import { getVaBuffer, triggerVA808, triggerVA909 } from '../audio/analog-drums.js';
 import { analyzeAudioBuffer } from '../audio/bpm-detector.js';
 
 export const meta = {
@@ -512,7 +512,21 @@ export function createNode(Tone) {
     }
 
     const use808 = synthVoiceCircuit[idx] === 1;
-    if (use808) {
+    // Replay the pre-rendered circuit voice (2 nodes) when cached; first hit renders in background
+    const cached = getVaBuffer(raw.sampleRate, use808 ? 808 : 909, idx, v, opts);
+    if (cached) {
+      const src = raw.createBufferSource();
+      src.buffer = cached.buffer;
+      const g = raw.createGain();
+      g.gain.value = v / cached.layerVel;
+      src.connect(g);
+      g.connect(strip.rawIn);
+      src.onended = () => {
+        src.disconnect();
+        g.disconnect();
+      };
+      src.start(t);
+    } else if (use808) {
       triggerVA808(raw, strip.rawIn, idx, t, v, opts);
     } else {
       triggerVA909(raw, strip.rawIn, idx, t, v, opts);

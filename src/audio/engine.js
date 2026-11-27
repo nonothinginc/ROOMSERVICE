@@ -2,9 +2,11 @@ import * as Tone from 'tone';
 import { getDevice } from '../device-registry.js';
 import { getSongEnd, getSongRange, nextId, store } from '../state/store.js';
 import { analyzeAudioBuffer } from './bpm-detector.js';
-import { addUserSampleBuffer, ensureFactoryDrumKits, getSamplePool } from './drum-kits.js';
+import { addUserSampleBuffer, ensureFactoryDrumKits, getReversedBuffer, getSamplePool } from './drum-kits.js';
 import { createPunchFx } from './punch-fx.js';
 import { createTapeDeck } from './tape-deck.js';
+import { StretchBanks } from './stretch.js';
+import { attachRenderCapacity, getLatencyMode, getLatencyProfile, playoutGlitches, recordSlack, timing } from './perf.js';
 
 function evalAutoClip(autoClip, normX) {
   const pts = autoClip.points;
@@ -159,6 +161,10 @@ class AudioEngine {
     this.activeAudioSources = new Map();
     this.songResync = false;
     this.jam = null;
+    // Recent (step, audio time) pairs: what is *audible* now, independent of lookahead
+    this.stepLog = new Float64Array(16 * 3);
+    this.stepLogHead = 0;
+    this.stepLogCount = 0;
     this.jamTimers = [];
     this.samplerBuffers = new Map();
     this.lastActiveMidiByTrack = new Array(8).fill(null);
@@ -178,12 +184,16 @@ class AudioEngine {
       // Native AudioContext, not Tone's standardized-audio-context wrapper:
       //  - native constructors (AudioWorkletNode in TAPE-1 / DRIVE, GainNode) accept it
       //  - connect() skips the wrapper's whole-graph cycle detection on every per-hit node
-      const native = new window.AudioContext({ latencyHint: 'interactive' });
-      Tone.setContext(new Tone.Context({ context: native, lookAhead: 0.02, updateInterval: 0.015 }));
+      const native = new window.AudioContext({ latencyHint: getLatencyProfile().latencyHint });
+      this.renderCapacity = attachRenderCapacity(native);
+      // Sequencing runs on the main thread, which also draws 60-120 fps canvases. A 20 ms
+      // lookahead let any longer UI/GC stall drop or delay notes; 60 ms (LIVE) / 120 ms (SAFE)
+      // absorbs those. Live playing is unaffected: pads/keys use Tone.immediate().
+      Tone.setContext(new Tone.Context({ context: native, lookAhead: getLatencyProfile().lookAhead, updateInterval: 0.02 }));
     } catch {
       try {
         const curCtx = Tone.getContext();
-        curCtx.lookAhead = 0.02;
+        curCtx.lookAhead = getLatencyProfile().lookAhead;
         curCtx.updateInterval = 0.015;
       } catch {
         // ignore if unsupported
@@ -219,6 +229,9 @@ class AudioEngine {
     this.limiter.connect(this.waveformAnalyser);
     this.limiter.connect(this.fftAnalyser);
     this.limiter.toDestination();
+
+    // Audio-thread time-stretch for playlist clips (replaces main-thread GrainPlayer grains)
+    this.stretch = new StretchBanks(rawCtx);
 
     // Performable tape machine between punch FX and master gain (spliced in once its worklet loads)
     this.tapeDeck = createTapeDeck(Tone, { onPrint: (buf) => this.onTapePrint(buf) });
@@ -851,7 +864,7 @@ class AudioEngine {
                 : st.gridSnapAuto
                   ? 1
                   : Math.max(0.25, st.gridSnap || 1);
-          const rawStep = st.currentStep % patLen;
+          const rawStep = ((this.getAudibleStep() % patLen) + patLen) % patLen;
           const qStep = (Math.round(rawStep / snap) * snap) % patLen;
           const curNotes = store.getActiveNotes(trackId, st.activePatternId);
           const dup = curNotes.some((n) => Math.abs(n.step - qStep) < 0.05 && n.midi === midi);
@@ -897,7 +910,7 @@ class AudioEngine {
             ? 1
             : Math.max(0.25, st.gridSnap || 1);
     const rawStep = st.isPlaying
-      ? st.currentStep % patLen
+      ? ((this.getAudibleStep() % patLen) + patLen) % patLen
       : Math.floor(st.currentStep || 0) % patLen;
     const qStep = st.isPlaying
       ? (Math.round(rawStep / snap) * snap) % patLen
@@ -1205,10 +1218,71 @@ class AudioEngine {
     return { clip, patId, takes: others.length + 1 };
   }
 
+  recordTiming(time) {
+    const now = Tone.getContext().rawContext.currentTime;
+    recordSlack(time - now, now);
+  }
+
+  /** Real-time health for the telemetry overlay. */
+  getHealth() {
+    const raw = Tone.getContext().rawContext;
+    return {
+      mode: getLatencyMode(),
+      lookAheadMs: Math.round(Tone.getContext().lookAhead * 1000),
+      sampleRate: raw.sampleRate,
+      baseLatencyMs: raw.baseLatency != null ? +(raw.baseLatency * 1000).toFixed(1) : null,
+      outputLatencyMs: raw.outputLatency != null ? +(raw.outputLatency * 1000).toFixed(1) : null,
+      steps: timing.last,
+      totalLate: timing.totalLate,
+      totalSteps: timing.totalSteps,
+      renderLoad: this.renderCapacity?.load ?? null,
+      renderPeak: this.renderCapacity?.peak ?? null,
+      underrunRatio: this.renderCapacity?.underruns ?? null,
+      glitchEvents: playoutGlitches(raw),
+      liveVoices: this.activeAudioSources.size
+    };
+  }
+
+  logStep(step, time, stepDur) {
+    const i = (this.stepLogHead % 16) * 3;
+    this.stepLog[i] = step;
+    this.stepLog[i + 1] = time;
+    this.stepLog[i + 2] = stepDur;
+    this.stepLogHead++;
+    this.stepLogCount = Math.min(16, this.stepLogCount + 1);
+    this.recordTiming(time);
+  }
+
+  /**
+   * Fractional step the listener is hearing right now (output latency compensated).
+   * st.currentStep runs ahead by the lookahead, so recording must use this instead.
+   */
+  getAudibleStep() {
+    if (!this.stepLogCount) return store.getState().currentStep;
+    const raw = Tone.getContext().rawContext;
+    const heard = raw.currentTime - (raw.outputLatency || raw.baseLatency || 0);
+    let best = -1;
+    for (let k = 0; k < this.stepLogCount; k++) {
+      const i = (((this.stepLogHead - 1 - k) % 16) + 16) % 16 * 3;
+      if (this.stepLog[i + 1] <= heard) {
+        best = i;
+        break;
+      }
+    }
+    if (best < 0) {
+      // Everything logged is still in the future: we're just before the oldest entry
+      const i = (((this.stepLogHead - this.stepLogCount) % 16) + 16) % 16 * 3;
+      return Math.max(0, this.stepLog[i] - (this.stepLog[i + 1] - heard) / this.stepLog[i + 2]);
+    }
+    return this.stepLog[best] + (heard - this.stepLog[best + 1]) / this.stepLog[best + 2];
+  }
+
   onStep(time) {
     const st = store.getState();
     const step = st.currentStep;
     const stepDur = (60 / st.bpm) / 4;
+    this.logStep(step, time, stepDur);
+    if ((step & 15) === 0) this.pruneAudioSources();
 
     const recLike = st.isRecording || Boolean(this.jam);
     if (step % 4 === 0 && (st.metronome === 'on' || (st.metronome === 'rec' && recLike))) {
@@ -1331,16 +1405,44 @@ class AudioEngine {
     const gainLin = Math.pow(10, (arrClip.gainDb || 0) / 20);
     const fadeIn = (arrClip.fadeInSteps || 0) * stepDur;
     const fadeOut = Math.min(playSec, (arrClip.fadeOutSteps || 0) * stepDur);
+    const intoSec = into * stepDur;
+    const endT = time + playSec;
+
+    const raw = Tone.getContext().rawContext;
+    const source = arrClip.reverse ? getReversedBuffer(raw, audioClip.buffer) : audioClip.buffer;
+
+    // Stretch modes: one message to the audio-thread stretcher (no main-thread grain scheduling)
+    if (audioClip.warpMode !== 'RE-PITCH' && this.stretch?.ok) {
+      const dest = targetFader.input || targetFader;
+      const node = this.stretch.get(`${audioClip.id}|${arrClip.reverse ? 'r' : 'f'}|${laneTrack}`, source, dest);
+      this.stretch.play(node, {
+        id: key,
+        when: time,
+        offsetSec,
+        durSec: playSec,
+        rate,
+        semitones: audioClip.pitch || 0,
+        mode: audioClip.warpMode,
+        grainSize: audioClip.grainSize,
+        spray: audioClip.spray,
+        gainLin,
+        fadeInSec: fadeIn,
+        fadeOutSec: fadeOut,
+        intoSec: intoSec
+      });
+      this.activeAudioSources.set(key, { stretchNode: node, id: key, endT });
+      return;
+    }
+
+    // RE-PITCH: native buffer source (tape-style speed change), no Tone wrapper
     const amp = new Tone.Gain(0).connect(targetFader);
     const g = amp.gain;
-    const intoSec = into * stepDur;
     if (fadeIn > 0 && intoSec < fadeIn) {
       g.setValueAtTime(gainLin * (intoSec / fadeIn), time);
       g.linearRampToValueAtTime(gainLin, time + (fadeIn - intoSec));
     } else {
       g.setValueAtTime(gainLin, time);
     }
-    const endT = time + playSec;
     if (fadeOut > 0) {
       g.setValueAtTime(gainLin, Math.max(time, endT - fadeOut));
       g.linearRampToValueAtTime(0, endT);
@@ -1350,32 +1452,18 @@ class AudioEngine {
       g.linearRampToValueAtTime(0, endT);
     }
 
-    let player;
-    if (audioClip.warpMode === 'RE-PITCH') {
-      player = new Tone.Player({ url: audioClip.buffer, playbackRate: rate }).connect(amp);
-    } else {
-      const isTexture = audioClip.warpMode === 'TEXTURE';
-      const isTones = audioClip.warpMode === 'TONES';
-      player = new Tone.GrainPlayer({
-        url: audioClip.buffer,
-        playbackRate: rate,
-        grainSize: isTexture ? audioClip.grainSize || 0.14 : isTones ? 0.12 : 0.055,
-        overlap: isTexture ? 0.08 : isTones ? 0.06 : 0.018,
-        detune: (audioClip.pitch || 0) * 100
-      }).connect(amp);
-    }
-    player.reverse = Boolean(arrClip.reverse);
-
+    const player = raw.createBufferSource();
+    player.buffer = source;
+    player.playbackRate.value = rate;
+    Tone.connect(player, amp);
     try {
       player.start(time, offsetSec);
       player.stop(endT + 0.01);
       const entry = { player, amp };
       this.activeAudioSources.set(key, entry);
-      player.onstop = () => {
-        setTimeout(() => {
-          if (this.activeAudioSources.get(key) === entry) this.activeAudioSources.delete(key);
-          this.disposeAudioEntry(entry);
-        }, 60);
+      player.onended = () => {
+        if (this.activeAudioSources.get(key) === entry) this.activeAudioSources.delete(key);
+        this.disposeAudioEntry(entry);
       };
     } catch {
       this.disposeAudioEntry({ player, amp });
@@ -1409,6 +1497,7 @@ class AudioEngine {
     const st = store.getState();
     const audioClip = st.audioClips[arrClip.refId];
     if (!audioClip) return;
+    this.pruneAudioSources();
     if (this.activeAudioSources.has('preview')) {
       this.stopAudioSource('preview');
       return;
@@ -1418,14 +1507,16 @@ class AudioEngine {
   }
 
   isPreviewingClip() {
+    this.pruneAudioSources();
     return this.activeAudioSources.has('preview');
   }
 
   disposeAudioEntry(entry) {
     if (!entry || entry.disposed) return;
     entry.disposed = true;
+    if (entry.stretchNode) return; // persistent bank node; nothing to free
     try {
-      entry.player.dispose();
+      entry.player.disconnect();
     } catch {
       // ignore
     }
@@ -1440,6 +1531,10 @@ class AudioEngine {
     const entry = this.activeAudioSources.get(key);
     if (!entry) return;
     this.activeAudioSources.delete(key);
+    if (entry.stretchNode) {
+      this.stretch.stop(entry.stretchNode, entry.id, time ?? Tone.immediate());
+      return;
+    }
     try {
       if (time != null) {
         entry.amp.gain.cancelScheduledValues(time);
@@ -1454,6 +1549,12 @@ class AudioEngine {
     } catch {
       this.disposeAudioEntry(entry);
     }
+  }
+
+  /** Stretch voices end on the audio thread without a callback: drop finished entries. */
+  pruneAudioSources() {
+    const now = Tone.immediate();
+    for (const [k, e] of this.activeAudioSources) if (e.stretchNode && e.endT < now) this.activeAudioSources.delete(k);
   }
 
   stopAllAudioClips(time = null) {

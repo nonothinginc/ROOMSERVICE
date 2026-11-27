@@ -515,3 +515,60 @@ export function triggerVA909(rawCtx, dest, voiceIdx, time, vel = 0.85, opts = {}
 
   scheduleCleanup(cleanup, (time - rawCtx.currentTime + maxDur) * 1000 + 180);
 }
+
+/* ------------------------------------------------------------------------------------------
+ * Render cache: a circuit voice is deterministic for given (circuit, voice, tune, decay,
+ * pitch-env, velocity layer), so it is rendered once offline and replayed as a single buffer
+ * source per hit instead of building 10-40 nodes per hit on the main thread.
+ * ---------------------------------------------------------------------------------------- */
+const vaCache = new Map(); // key -> AudioBuffer | Promise
+const VA_CACHE_MAX = 192;
+const VEL_LAYERS = [0.55, 1.0];
+
+export function vaVelLayer(vel) {
+  return vel < 0.75 ? 0 : 1;
+}
+
+function vaKey(circuit, idx, layer, opts) {
+  return `${circuit}|${idx}|${layer}|${(opts.tune || 0).toFixed(2)}|${(opts.decay ?? 1).toFixed(2)}|${opts.pitchEnv || 0}`;
+}
+
+/** Cached buffer for this voice, or null (and a background render is started). */
+export function getVaBuffer(sampleRate, circuit, idx, vel, opts) {
+  const layer = vaVelLayer(vel);
+  const key = vaKey(circuit, idx, layer, opts);
+  const hit = vaCache.get(key);
+  if (hit instanceof AudioBuffer) {
+    vaCache.delete(key);
+    vaCache.set(key, hit); // LRU touch
+    return { buffer: hit, layerVel: VEL_LAYERS[layer] };
+  }
+  if (!hit) {
+    const p = renderVa(sampleRate, circuit, idx, VEL_LAYERS[layer], opts)
+      .then((buf) => {
+        vaCache.set(key, buf);
+        while (vaCache.size > VA_CACHE_MAX) vaCache.delete(vaCache.keys().next().value);
+        return buf;
+      })
+      .catch(() => vaCache.delete(key));
+    vaCache.set(key, p);
+  }
+  return null;
+}
+
+async function renderVa(sampleRate, circuit, idx, vel, opts) {
+  const dur = Math.min(3.2, 0.7 + 1.3 * (opts.decay ?? 1));
+  const off = new OfflineAudioContext(2, Math.ceil(sampleRate * dur), sampleRate);
+  (circuit === 808 ? triggerVA808 : triggerVA909)(off, off.destination, idx, 0, vel, opts);
+  const buf = await off.startRendering();
+  // Trim the silent tail so replay sources end as early as the live voice would
+  const a = buf.getChannelData(0);
+  const b = buf.getChannelData(1);
+  let end = a.length - 1;
+  while (end > 0 && Math.abs(a[end]) < 1e-4 && Math.abs(b[end]) < 1e-4) end--;
+  const len = Math.min(a.length, end + Math.ceil(sampleRate * 0.01));
+  const out = new AudioBuffer({ length: len, numberOfChannels: 2, sampleRate });
+  out.copyToChannel(a.subarray(0, len), 0);
+  out.copyToChannel(b.subarray(0, len), 1);
+  return out;
+}

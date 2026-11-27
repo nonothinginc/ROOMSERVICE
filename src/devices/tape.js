@@ -75,6 +75,8 @@ class TapeHysteresisProcessor extends AudioWorkletProcessor {
     this.loopPts = new Float32Array(48); // 24 (H, M) pairs
     this.waveIn = new Float32Array(32);
     this.waveOut = new Float32Array(32);
+    // [0..6] scalars, [7..54] loopPts (48), [55..86] waveIn (32), [87..118] waveOut (32)
+    this.tel = new Float32Array(119);
   }
 
   nextRand() {
@@ -319,18 +321,14 @@ class TapeHysteresisProcessor extends AudioWorkletProcessor {
       const inRms = Math.sqrt(inSumSq / nSamples);
       const outRms = Math.sqrt(outSumSq / nSamples);
       const satAmount = Math.max(0, Math.min(1, Math.abs(this.M[0]) / Math.max(0.4, Ms)));
-      this.port.postMessage({
-        inPeak,
-        outPeak,
-        inRms,
-        outRms,
-        satAmount,
-        flutterMod: lastFlutterMod,
-        dropout: 1 - this.dropEnv,
-        loopPts: Array.from(this.loopPts),
-        waveIn: Array.from(this.waveIn),
-        waveOut: Array.from(this.waveOut)
-      });
+      // Fixed-layout telemetry block, allocated once: no JS objects created on the audio thread
+      const t = this.tel;
+      t[0] = inPeak; t[1] = outPeak; t[2] = inRms; t[3] = outRms;
+      t[4] = satAmount; t[5] = lastFlutterMod; t[6] = 1 - this.dropEnv;
+      t.set(this.loopPts, 7);
+      t.set(this.waveIn, 55);
+      t.set(this.waveOut, 87);
+      this.port.postMessage(t);
     }
 
     return true;
@@ -472,18 +470,18 @@ export function createNode(Tone) {
       });
       workletNode.port.onmessage = (ev) => {
         const d = ev.data;
-        if (!d) return;
+        if (!d || d.length < 119) return;
         lastWorkletMsgAt = performance.now();
-        telemetry.inPeak = d.inPeak || 0;
-        telemetry.outPeak = d.outPeak || 0;
-        telemetry.inRms = d.inRms || 0;
-        telemetry.outRms = d.outRms || 0;
-        telemetry.satAmount = d.satAmount || 0;
-        telemetry.flutterMod = d.flutterMod || 0;
-        telemetry.dropout = d.dropout || 0;
-        telemetry.loopPts = d.loopPts || [];
-        telemetry.waveIn = d.waveIn || [];
-        telemetry.waveOut = d.waveOut || [];
+        telemetry.inPeak = d[0];
+        telemetry.outPeak = d[1];
+        telemetry.inRms = d[2];
+        telemetry.outRms = d[3];
+        telemetry.satAmount = d[4];
+        telemetry.flutterMod = d[5];
+        telemetry.dropout = d[6];
+        telemetry.loopPts = d.subarray(7, 55);
+        telemetry.waveIn = d.subarray(55, 87);
+        telemetry.waveOut = d.subarray(87, 119);
       };
       headBump.disconnect(fallbackShaper);
       Tone.connect(headBump, workletNode);

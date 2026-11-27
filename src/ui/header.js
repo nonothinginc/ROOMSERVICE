@@ -3,6 +3,7 @@ import { store } from '../state/store.js';
 import { input } from '../input/gamepad.js';
 import { downloadProjectArchive, importProjectArchive, saveAutosave } from '../storage/project-archive.js';
 import { attachLongPress } from './components/longpress.js';
+import { getLatencyMode, setLatencyMode } from '../audio/perf.js';
 
 let hiddenProjRsInput = null;
 function openRsPicker(onFile) {
@@ -305,7 +306,33 @@ export function renderProjectModal(modalEl) {
     )
   );
 
-  body.append(nameInput, list);
+  // Latency profile: LIVE (tight) vs SAFE (bigger buffers + lookahead). Restarts the audio engine.
+  const latRow = document.createElement('div');
+  latRow.className = 'rand-row';
+  const latLbl = document.createElement('span');
+  latLbl.textContent = 'LATENCY';
+  const latSeg = document.createElement('div');
+  latSeg.className = 'dsp-seg-bar';
+  latSeg.style.gridTemplateColumns = 'repeat(2, 1fr)';
+  latSeg.style.minWidth = '160px';
+  for (const mode of ['LIVE', 'SAFE']) {
+    const b = document.createElement('button');
+    b.className = `dsp-seg-btn ${getLatencyMode() === mode ? 'active' : ''}`;
+    b.textContent = mode;
+    b.title = mode === 'LIVE' ? 'Tightest feel (60 ms sequencing lookahead)' : 'Dense sessions: bigger buffers, 120 ms lookahead';
+    b.onclick = async () => {
+      if (getLatencyMode() === mode) return;
+      setLatencyMode(mode);
+      await saveAutosave(store);
+      // Come straight back into this session after the audio engine restarts
+      sessionStorage.setItem('roomservice_resume_once', '1');
+      location.reload();
+    };
+    latSeg.appendChild(b);
+  }
+  latRow.append(latLbl, latSeg);
+
+  body.append(nameInput, latRow, list);
   modalEl.append(hdr, body);
 }
 

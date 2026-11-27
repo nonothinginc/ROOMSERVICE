@@ -74,6 +74,14 @@ ROOMSERVICE/
 - **Native AudioContext:** Tone runs on a native `window.AudioContext` (not the standardized-audio-context wrapper) so native constructors (`AudioWorkletNode` in TAPE-1/DRIVE) work and per-hit `connect()` skips whole-graph cycle detection. Never reintroduce `new Tone.Context({...})` without `context:`.
 - **Context Tuning (`src/audio/engine.js`):** Configured on init with `latencyHint: 'interactive'`, `lookAhead: 0.02` (`20ms`), and `updateInterval: 0.015`.
 - **Zero-Wait Live Triggers:** `Tone.immediate()` is used across all voice monotonic schedulers (`mono303.js`, `drum8.js`, `polyfm.js`, `grain1.js`), and `engine.previewNote()` executes synchronously whenever `store.getState().audioUnlocked` is true.
+- **Real-time hardening (Phase 1, 2026-11-27):**
+  - Sequencing lookahead 60 ms (LIVE) / 120 ms (SAFE, plus `latencyHint: 'balanced'`), chosen in PROJECT → LATENCY (`src/audio/perf.js`, applies via reload + auto-resume). Live pads/keys still use `Tone.immediate()`.
+  - Recording uses `engine.getAudibleStep()` (timestamped step log + `outputLatency`), never `st.currentStep` (which runs ahead by the lookahead).
+  - Playlist warp (BEATS/TONES/TEXTURE) runs in `src/audio/stretch.js`: one AudioWorkletNode per (clip, direction, lane), sample loaded once, grains computed on the audio thread, direct read when rate≈pitch≈1, seamless re-trigger at loop seams. RE-PITCH = native AudioBufferSourceNode. Tone.GrainPlayer is no longer used.
+  - DRUM-8 circuit voices are rendered once per (circuit, voice, tune, decay, pitch-env, velocity layer) via OfflineAudioContext and replayed as a single buffer source (`getVaBuffer` in `analog-drums.js`); first hit with new settings plays live while rendering.
+  - Worklet rule: no allocation in `process()`; telemetry is a preallocated typed array posted as-is (TAPE-1 layout 119 floats, tape deck 27 doubles).
+  - Health: `engine.getHealth()` (step slack/late counts, outputLatency, renderCapacity / playoutStats where the WebView exposes them) shown in the dot-matrix TELEMETRY overlay.
+  - APK: `PlaybackService` foreground media service + partial wake lock while the transport plays (`RoomserviceNative.setPlaying`).
 - **Master chain:** `masterBus → punchFx → TAPE deck worklet → masterGain → limiter → destination` (deck spliced in once its worklet loads; idle is pass-through).
 - **Channel Routing:**
   - `Instrument Slot 0` -> `[Active Insert FX 1..N]` -> `Channel Fader` -> `Panner` -> `Master Bus` -> `Master Gain` -> `Limiter` -> `Destination`.
