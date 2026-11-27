@@ -35,6 +35,7 @@ if [ "$MODE" = "full" ]; then
   cp /tmp/roomservice-cap.json capacitor.config.json
   (cd android && ./gradlew --quiet assembleDebug)
   $ADB -s "$TARGET" install -r -g android/app/build/outputs/apk/debug/app-debug.apk | tail -1
+  $ADB -s "$TARGET" shell pm grant com.nonothing.roomservice android.permission.WRITE_SECURE_SETTINGS || true
 fi
 
 $ADB -s "$TARGET" reverse tcp:$PORT tcp:$PORT >/dev/null

@@ -1,6 +1,9 @@
 package com.nonothing.roomservice;
 
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.util.Log;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.InputEvent;
@@ -37,6 +40,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(RoomserviceNativePlugin.class);
+        forceSingleProcessWebView();
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WebView wv = getBridge().getWebView();
@@ -45,6 +49,33 @@ public class MainActivity extends BridgeActivity {
         // Audio can start from gamepad input, not only touch
         wv.getSettings().setMediaPlaybackRequiresUserGesture(false);
         hideSystemUi();
+    }
+
+    /**
+     * The RG477V's system WebView (113, /product/app/webview) is installed 32-bit (primaryCpuAbi
+     * armeabi-v7a). Its renderer process, which runs Web Audio, is therefore AArch32 and the kernel
+     * only schedules AArch32 on the four A520 little cores (aarch32_el0 = 0-3): the engine context
+     * rendered at ~0.3x real time = crackle. With multiprocess off, the renderer runs inside this
+     * 64-bit app process (all 8 cores): measured 1.0x. Must run before the WebView is created.
+     * Needs WRITE_SECURE_SETTINGS, granted once over adb:
+     *   adb shell pm grant com.nonothing.roomservice android.permission.WRITE_SECURE_SETTINGS
+     * (or set it directly: adb shell settings put global webview_multiprocess -2147483648).
+     * The setting is global and persists across reboots.
+     */
+    private void forceSingleProcessWebView() {
+        try {
+            String key = "webview_multiprocess";
+            int off = Integer.MIN_VALUE;
+            if (Settings.Global.getInt(getContentResolver(), key, 0) == off) return;
+            if (checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != PackageManager.PERMISSION_GRANTED) {
+                Log.w("ROOMSERVICE", "WebView multiprocess on (32-bit renderer = little cores). Grant WRITE_SECURE_SETTINGS over adb.");
+                return;
+            }
+            Settings.Global.putInt(getContentResolver(), key, off);
+            Log.i("ROOMSERVICE", "WebView multiprocess disabled (renderer now in the 64-bit app process)");
+        } catch (Exception e) {
+            Log.w("ROOMSERVICE", "webview_multiprocess: " + e);
+        }
     }
 
     @Override
